@@ -1,0 +1,107 @@
+# ---------------------------------------------------------------------------------
+#                 Common definitions
+# ---------------------------------------------------------------------------------
+LOCAL_PATH:= $(call my-dir)
+include $(CLEAR_VARS)
+COMM_LIB_PATH:=  src
+
+LOCAL_CFLAGS := -g -Wno-unused-parameter -Wno-unused-variable \
+         -Wno-tautological-compare -Wno-missing-field-initializers \
+        -Wno-incompatible-pointer-types -Wno-typedef-redefinition \
+    -Wno-implicit-function-declaration -Wno-unused-function
+
+LOCAL_PRELINK_MODULE := false
+
+# Add all source file names to be included in lib separated by a whitespace
+LOCAL_SRC_FILES := \
+    src/security.c \
+    src/keepalive.c \
+    src/signals.c \
+    src/send_auth.c \
+    src/net.c \
+    src/persist_read_v234.c \
+    src/handle_subscribe.c \
+    src/handle_publish.c \
+    src/plugin_public.c \
+    src/websockets.c \
+    src/handle_auth.c \
+    src/property_broker.c \
+    src/handle_disconnect.c \
+    src/logging.c \
+    src/conf_includedir.c \
+    src/conf.c \
+    src/retain.c \
+    src/xtreport.c \
+    src/security_default.c \
+    src/bridge.c \
+    src/persist_write_v5.c \
+    src/control.c \
+    src/mosquitto.c \
+    src/context.c \
+    src/session_expiry.c \
+    src/will_delay.c \
+    src/persist_write.c \
+    src/handle_connect.c \
+    src/sys_tree.c \
+    src/topic_tok.c \
+    src/memory_public.c \
+    src/persist_read_v5.c \
+    src/mux_poll.c \
+    src/send_unsuback.c \
+    src/persist_read.c \
+    src/mux.c \
+    src/send_connack.c \
+    src/send_suback.c \
+    src/handle_connack.c \
+    src/loop.c \
+    src/mux_epoll.c \
+    src/subs.c \
+    src/read_handle.c \
+    src/password_mosq.c \
+    src/database.c \
+    src/service.c \
+    src/handle_unsubscribe.c \
+    src/bridge_topic.c \
+    src/plugin.c \
+    lib/alias_mosq.c \
+    lib/handle_ping.c \
+    lib/handle_pubackcomp.c \
+    lib/handle_pubrec.c \
+    lib/handle_pubrel.c \
+    lib/handle_suback.c \
+    lib/handle_unsuback.c \
+    lib/memory_mosq.c \
+    lib/misc_mosq.c \
+    lib/net_mosq.c \
+    lib/net_mosq_ocsp.c \
+    lib/packet_datatypes.c \
+    lib/packet_mosq.c \
+    lib/property_mosq.c \
+    lib/send_connect.c \
+    lib/send_disconnect.c \
+    lib/send_mosq.c \
+    lib/send_publish.c \
+    lib/send_subscribe.c \
+    lib/send_unsubscribe.c \
+    lib/strings_mosq.c \
+    lib/time_mosq.c \
+    lib/tls_mosq.c \
+    lib/utf8_mosq.c \
+    lib/util_mosq.c \
+    lib/util_topic.c \
+    lib/will_mosq.c \
+
+LOCAL_SHARED_LIBRARIES := libmosquitto \
+
+LOCAL_CFLAGS += -DWITH_BROKER -DWITH_BRIDGE -DWITH_CONTROL -DWITH_EPOLL -DWITH_MEMORY_TRACKING -DWITH_PERSISTENCE -DWITH_SYS_TREE \
+                -DVERSION="\"2.0.11\"" -DWITH_UNIX_SOCKETS
+
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/src/ \
+                    $(LOCAL_PATH)/include/ \
+                    $(LOCAL_PATH)/lib/ \
+                    $(LOCAL_PATH)/deps/ \
+
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE := mosquitto
+LOCAL_VENDOR_MODULE := true
+include $(BUILD_EXECUTABLE)

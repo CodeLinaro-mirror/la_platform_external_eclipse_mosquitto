@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------------
+#                 Common definitions
+# ---------------------------------------------------------------------------------
+LOCAL_PATH:= $(call my-dir)
+
+LOCAL_CFLAGS := -g -Wno-unused-parameter -Wno-unused-variable \
+         -Wno-tautological-compare -Wno-missing-field-initializers \
+        -Wno-incompatible-pointer-types -Wno-typedef-redefinition \
+	-Wno-implicit-function-declaration -Wno-unused-function
+
+# Add all source file names to be included in lib separated by a whitespace
+
+LOCAL_LIB_SRC_FILES := \
+        lib/socks_mosq.c \
+        lib/send_connect.c \
+        lib/handle_publish.c \
+        lib/time_mosq.c \
+        lib/handle_ping.c \
+        lib/net_mosq.c \
+        lib/send_unsubscribe.c \
+        lib/logging_mosq.c \
+        lib/handle_auth.c \
+        lib/tls_mosq.c \
+        lib/handle_disconnect.c \
+        lib/strings_mosq.c \
+        lib/handle_pubrec.c \
+        lib/net_mosq_ocsp.c \
+        lib/mosquitto.c \
+        lib/handle_unsuback.c \
+        lib/packet_datatypes.c \
+        lib/messages_mosq.c \
+        lib/send_subscribe.c \
+        lib/callbacks.c \
+        lib/handle_pubackcomp.c \
+        lib/handle_suback.c \
+        lib/util_topic.c \
+        lib/send_mosq.c \
+        lib/packet_mosq.c \
+        lib/alias_mosq.c \
+        lib/misc_mosq.c \
+        lib/srv_mosq.c \
+        lib/handle_pubrel.c \
+        lib/util_mosq.c \
+        lib/handle_connack.c \
+        lib/thread_mosq.c \
+        lib/loop.c \
+        lib/utf8_mosq.c \
+        lib/actions.c \
+        lib/will_mosq.c \
+        lib/read_handle.c \
+        lib/helpers.c \
+        lib/property_mosq.c \
+        lib/send_disconnect.c \
+        lib/send_publish.c \
+        lib/options.c \
+        lib/memory_mosq.c \
+        lib/connect.c \
+
+include $(CLEAR_VARS)
+LOCAL_CFLAGS += -DWITH_BRIDGE -DWITH_CONTROL -DWITH_EPOLL -DWITH_MEMORY_TRACKING -DWITH_PERSISTENCE -DWITH_SYS_TREE \
+                -DVERSION="\"2.0.11\""
+
+LOCAL_C_INCLUDES := $(LOCAL_PATH)/ \
+                $(LOCAL_PATH)/include/ \
+                $(LOCAL_PATH)/src/ \
+                $(LOCAL_PATH)/lib/ \
+                $(LOCAL_PATH)/deps/ \
+LOCAL_SRC_FILES := $(LOCAL_LIB_SRC_FILES )
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE := libmosquitto
+LOCAL_VENDOR_MODULE := true
+include $(BUILD_SHARED_LIBRARY)
+
