@@ -43,6 +43,10 @@ try:
             broker.terminate()
             print(err.strerror)
             raise ValueError(err.errno)
+    except ssl.SSLEOFError:
+        # Closed after the handshake but before we were able to send the connect packet
+        rc = 0
+        pass
 
 except mosq_test.TestError:
     pass
