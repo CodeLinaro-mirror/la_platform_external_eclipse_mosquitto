@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -113,15 +113,14 @@ int mosquitto_username_pw_set(struct mosquitto *mosq, const char *username, cons
 int mosquitto_reconnect_delay_set(struct mosquitto *mosq, unsigned int reconnect_delay, unsigned int reconnect_delay_max, bool reconnect_exponential_backoff)
 {
 	if(!mosq) return MOSQ_ERR_INVAL;
-	
+
 	if(reconnect_delay == 0) reconnect_delay = 1;
 
 	mosq->reconnect_delay = reconnect_delay;
 	mosq->reconnect_delay_max = reconnect_delay_max;
 	mosq->reconnect_exponential_backoff = reconnect_exponential_backoff;
-	
+
 	return MOSQ_ERR_SUCCESS;
-	
 }
 
 
@@ -180,19 +179,21 @@ int mosquitto_tls_set(struct mosquitto *mosq, const char *cafile, const char *ca
 	mosquitto__free(mosq->tls_keyfile);
 	mosq->tls_keyfile = NULL;
 	if(keyfile){
-		fptr = mosquitto__fopen(keyfile, "rt", false);
-		if(fptr){
-			fclose(fptr);
-		}else{
-			mosquitto__free(mosq->tls_cafile);
-			mosq->tls_cafile = NULL;
+		if(mosq->tls_keyform == mosq_k_pem){
+			fptr = mosquitto__fopen(keyfile, "rt", false);
+			if(fptr){
+				fclose(fptr);
+			}else{
+				mosquitto__free(mosq->tls_cafile);
+				mosq->tls_cafile = NULL;
 
-			mosquitto__free(mosq->tls_capath);
-			mosq->tls_capath = NULL;
+				mosquitto__free(mosq->tls_capath);
+				mosq->tls_capath = NULL;
 
-			mosquitto__free(mosq->tls_certfile);
-			mosq->tls_certfile = NULL;
-			return MOSQ_ERR_INVAL;
+				mosquitto__free(mosq->tls_certfile);
+				mosq->tls_certfile = NULL;
+				return MOSQ_ERR_INVAL;
+			}
 		}
 		mosq->tls_keyfile = mosquitto__strdup(keyfile);
 		if(!mosq->tls_keyfile){
@@ -205,6 +206,13 @@ int mosquitto_tls_set(struct mosquitto *mosq, const char *cafile, const char *ca
 
 	return MOSQ_ERR_SUCCESS;
 #else
+	UNUSED(mosq);
+	UNUSED(cafile);
+	UNUSED(capath);
+	UNUSED(certfile);
+	UNUSED(keyfile);
+	UNUSED(pw_callback);
+
 	return MOSQ_ERR_NOT_SUPPORTED;
 
 #endif
@@ -222,27 +230,35 @@ int mosquitto_tls_opts_set(struct mosquitto *mosq, int cert_reqs, const char *tl
 				|| !strcasecmp(tls_version, "tlsv1.2")
 				|| !strcasecmp(tls_version, "tlsv1.1")){
 
+			mosquitto__free(mosq->tls_version);
 			mosq->tls_version = mosquitto__strdup(tls_version);
 			if(!mosq->tls_version) return MOSQ_ERR_NOMEM;
 		}else{
 			return MOSQ_ERR_INVAL;
 		}
 	}else{
+		mosquitto__free(mosq->tls_version);
 		mosq->tls_version = mosquitto__strdup("tlsv1.2");
 		if(!mosq->tls_version) return MOSQ_ERR_NOMEM;
 	}
 	if(ciphers){
+		mosquitto__free(mosq->tls_ciphers);
 		mosq->tls_ciphers = mosquitto__strdup(ciphers);
 		if(!mosq->tls_ciphers) return MOSQ_ERR_NOMEM;
 	}else{
+		mosquitto__free(mosq->tls_ciphers);
 		mosq->tls_ciphers = NULL;
 	}
 
 
 	return MOSQ_ERR_SUCCESS;
 #else
-	return MOSQ_ERR_NOT_SUPPORTED;
+	UNUSED(mosq);
+	UNUSED(cert_reqs);
+	UNUSED(tls_version);
+	UNUSED(ciphers);
 
+	return MOSQ_ERR_NOT_SUPPORTED;
 #endif
 }
 
@@ -254,6 +270,9 @@ int mosquitto_tls_insecure_set(struct mosquitto *mosq, bool value)
 	mosq->tls_insecure = value;
 	return MOSQ_ERR_SUCCESS;
 #else
+	UNUSED(mosq);
+	UNUSED(value);
+
 	return MOSQ_ERR_NOT_SUPPORTED;
 #endif
 }
@@ -271,14 +290,22 @@ int mosquitto_string_option(struct mosquitto *mosq, enum mosq_opt_t option, cons
 	switch(option){
 		case MOSQ_OPT_TLS_ENGINE:
 #if defined(WITH_TLS) && !defined(OPENSSL_NO_ENGINE)
-			eng = ENGINE_by_id(value);
-			if(!eng){
-				return MOSQ_ERR_INVAL;
-			}
-			ENGINE_free(eng); /* release the structural reference from ENGINE_by_id() */
-			mosq->tls_engine = mosquitto__strdup(value);
-			if(!mosq->tls_engine){
-				return MOSQ_ERR_NOMEM;
+			mosquitto__free(mosq->tls_engine);
+			if(value){
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+				/* The "Dynamic" OpenSSL engine is not initialized by default but
+				   is required by ENGINE_by_id() to find dynamically loadable engines */
+				OPENSSL_init_crypto(OPENSSL_INIT_ENGINE_DYNAMIC, NULL);
+#endif
+				eng = ENGINE_by_id(value);
+				if(!eng){
+					return MOSQ_ERR_INVAL;
+				}
+				ENGINE_free(eng); /* release the structural reference from ENGINE_by_id() */
+				mosq->tls_engine = mosquitto__strdup(value);
+				if(!mosq->tls_engine){
+					return MOSQ_ERR_NOMEM;
+				}
 			}
 			return MOSQ_ERR_SUCCESS;
 #else
@@ -373,6 +400,11 @@ int mosquitto_tls_psk_set(struct mosquitto *mosq, const char *psk, const char *i
 
 	return MOSQ_ERR_SUCCESS;
 #else
+	UNUSED(mosq);
+	UNUSED(psk);
+	UNUSED(identity);
+	UNUSED(ciphers);
+
 	return MOSQ_ERR_NOT_SUPPORTED;
 #endif
 }
@@ -382,26 +414,17 @@ int mosquitto_opts_set(struct mosquitto *mosq, enum mosq_opt_t option, void *val
 {
 	int ival;
 
-	if(!mosq || !value) return MOSQ_ERR_INVAL;
+	if(!mosq) return MOSQ_ERR_INVAL;
 
 	switch(option){
 		case MOSQ_OPT_PROTOCOL_VERSION:
+			if(value == NULL){
+				return MOSQ_ERR_INVAL;
+			}
 			ival = *((int *)value);
 			return mosquitto_int_option(mosq, option, ival);
 		case MOSQ_OPT_SSL_CTX:
-#ifdef WITH_TLS
-			mosq->ssl_ctx = (SSL_CTX *)value;
-			if(mosq->ssl_ctx){
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L) && !defined(LIBRESSL_VERSION_NUMBER)
-				SSL_CTX_up_ref(mosq->ssl_ctx);
-#else
-				CRYPTO_add(&(mosq->ssl_ctx)->references, 1, CRYPTO_LOCK_SSL_CTX);
-#endif
-			}
-			break;
-#else
-			return MOSQ_ERR_NOT_SUPPORTED;
-#endif
+			return mosquitto_void_option(mosq, option, value);
 		default:
 			return MOSQ_ERR_INVAL;
 	}
@@ -493,17 +516,17 @@ int mosquitto_int_option(struct mosquitto *mosq, enum mosq_opt_t option, int val
 
 int mosquitto_void_option(struct mosquitto *mosq, enum mosq_opt_t option, void *value)
 {
-	if(!mosq || !value) return MOSQ_ERR_INVAL;
+	if(!mosq) return MOSQ_ERR_INVAL;
 
 	switch(option){
 		case MOSQ_OPT_SSL_CTX:
 #ifdef WITH_TLS
-			mosq->ssl_ctx = (SSL_CTX *)value;
-			if(mosq->ssl_ctx){
-#if (OPENSSL_VERSION_NUMBER >= 0x10100000L) && !defined(LIBRESSL_VERSION_NUMBER)
-				SSL_CTX_up_ref(mosq->ssl_ctx);
+			mosq->user_ssl_ctx = (SSL_CTX *)value;
+			if(mosq->user_ssl_ctx){
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+				SSL_CTX_up_ref(mosq->user_ssl_ctx);
 #else
-				CRYPTO_add(&(mosq->ssl_ctx)->references, 1, CRYPTO_LOCK_SSL_CTX);
+				CRYPTO_add(&(mosq->user_ssl_ctx)->references, 1, CRYPTO_LOCK_SSL_CTX);
 #endif
 			}
 			break;

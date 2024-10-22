@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -19,6 +19,7 @@ Contributors:
 #define NET_MOSQ_H
 
 #ifndef WIN32
+#  include <sys/socket.h>
 #  include <unistd.h>
 #else
 #  include <winsock2.h>
@@ -49,6 +50,10 @@ typedef SSIZE_T ssize_t;
 /* For when not using winsock libraries. */
 #ifndef INVALID_SOCKET
 #define INVALID_SOCKET -1
+#endif
+
+#ifndef MSG_NOSIGNAL
+#  define MSG_NOSIGNAL 0
 #endif
 
 /* Macros for accessing the MSB and LSB of a uint16_t */

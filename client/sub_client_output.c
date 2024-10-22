@@ -4,12 +4,12 @@ Copyright (c) 2009-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -21,6 +21,8 @@ Contributors:
 #ifdef WIN32
    /* For rand_s on Windows */
 #  define _CRT_RAND_S
+#  include <fcntl.h>
+#  include <io.h>
 #endif
 
 #include <assert.h>
@@ -208,7 +210,7 @@ static int json_print_properties(cJSON *root, const mosquitto_property *properti
 				break;
 
 			case MQTT_PROP_TOPIC_ALIAS:
-				mosquitto_property_read_int16(prop, MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, &i16value, false);
+				mosquitto_property_read_int16(prop, MQTT_PROP_TOPIC_ALIAS, &i16value, false);
 				tmp = cJSON_CreateNumber(i16value);
 				break;
 
@@ -246,6 +248,16 @@ static int json_print_properties(cJSON *root, const mosquitto_property *properti
 #endif
 
 
+static void format_time_8601(const struct tm *ti, int ns, char *buf, size_t len)
+{
+	char c;
+
+	strftime(buf, len, "%Y-%m-%dT%H:%M:%S.000000%z", ti);
+	c = buf[strlen("2020-05-06T21:48:00.000000")];
+	snprintf(&buf[strlen("2020-05-06T21:48:00.")], 9, "%06d", ns/1000);
+	buf[strlen("2020-05-06T21:48:00.000000")] = c;
+}
+
 static int json_print(const struct mosquitto_message *message, const mosquitto_property *properties, const struct tm *ti, int ns, bool escaped, bool pretty)
 {
 	char buf[100];
@@ -260,9 +272,7 @@ static int json_print(const struct mosquitto_message *message, const mosquitto_p
 		return MOSQ_ERR_NOMEM;
 	}
 
-	strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000000Z%z", ti);
-	snprintf(&buf[strlen("2020-05-06T21:48:00.")], 9, "%06d", ns/1000);
-	buf[strlen("2020-05-06T21:48:00.000000")] = 'Z';
+	format_time_8601(ti, ns, buf, sizeof(buf));
 
 	tmp = cJSON_CreateStringReference(buf);
 	if(tmp == NULL){
@@ -359,15 +369,13 @@ static int json_print(const struct mosquitto_message *message, const mosquitto_p
 
 	fputs(json_str, stdout);
 	free(json_str);
-	
+
 	return MOSQ_ERR_SUCCESS;
 #else
 	UNUSED(properties);
 	UNUSED(pretty);
 
-	strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S.000000Z%z", ti);
-	snprintf(&buf[strlen("2020-05-06T21:48:00.")], 9, "%06d", ns/1000);
-	buf[strlen("2020-05-06T21:48:00.000000")] = 'Z';
+	format_time_8601(ti, ns, buf, sizeof(buf));
 
 	printf("{\"tst\":\"%s\",\"topic\":\"%s\",\"qos\":%d,\"retain\":%d,\"payloadlen\":%d,", buf, message->topic, message->qos, message->retain, message->payloadlen);
 	if(message->qos > 0){
@@ -382,7 +390,7 @@ static int json_print(const struct mosquitto_message *message, const mosquitto_p
 		write_payload(message->payload, message->payloadlen, 0, 0, 0, 0, 0);
 		fputs("}", stdout);
 	}
-	
+
 	return MOSQ_ERR_SUCCESS;
 #endif
 }
@@ -764,7 +772,7 @@ static void formatted_print(const struct mosq_config *lcfg, const struct mosquit
 }
 
 
-void rand_init(void)
+void output_init(void)
 {
 #ifndef WIN32
 	struct tm *ti = NULL;
@@ -773,6 +781,9 @@ void rand_init(void)
 	if(!get_time(&ti, &ns)){
 		srandom((unsigned int)ns);
 	}
+#else
+	/* Disable text translation so binary payloads aren't modified */
+	_setmode(_fileno(stdout), _O_BINARY);
 #endif
 }
 

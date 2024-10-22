@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -47,7 +47,7 @@ int persist__chunk_header_read_v56(FILE *db_fptr, uint32_t *chunk, uint32_t *len
 
 	rlen = fread(&header, sizeof(struct PF_header), 1, db_fptr);
 	if(rlen != 1) return 1;
-	
+
 	*chunk = ntohl(header.chunk);
 	*length = ntohl(header.length);
 
@@ -79,7 +79,7 @@ int persist__chunk_client_read_v56(FILE *db_fptr, struct P_client *chunk, uint32
 	}else{
 		return 1;
 	}
-	
+
 	chunk->F.session_expiry_interval = ntohl(chunk->F.session_expiry_interval);
 	chunk->F.last_mid = ntohs(chunk->F.last_mid);
 	chunk->F.id_len = ntohs(chunk->F.id_len);
@@ -203,9 +203,9 @@ int persist__chunk_msg_store_read_v56(FILE *db_fptr, struct P_msg_store *chunk, 
 			log__printf(NULL, MOSQ_LOG_ERR, "Error: Out of memory.");
 			return MOSQ_ERR_NOMEM;
 		}
+		read_e(db_fptr, chunk->payload, chunk->F.payloadlen);
 		/* Ensure zero terminated regardless of contents */
 		((uint8_t *)chunk->payload)[chunk->F.payloadlen] = 0;
-		read_e(db_fptr, chunk->payload, chunk->F.payloadlen);
 	}
 
 	if(length > 0){

@@ -37,10 +37,17 @@ int handle__connack(struct mosquitto *context)
 	uint32_t maximum_packet_size;
 	uint8_t retain_available;
 	uint16_t server_keepalive;
+	uint16_t inflight_maximum;
 	uint8_t max_qos = 255;
 
-	if(context == NULL || context->bridge == NULL){
+	if(context == NULL){
 		return MOSQ_ERR_INVAL;
+	}
+	if(context->bridge == NULL){
+		return MOSQ_ERR_PROTOCOL;
+	}
+	if(context->in_packet.command != CMD_CONNACK){
+		return MOSQ_ERR_MALFORMED_PACKET;
 	}
 	log__printf(NULL, MOSQ_LOG_DEBUG, "Received CONNACK on connection %s.", context->id);
 	if(packet__read_byte(&context->in_packet, &connect_acknowledge)) return MOSQ_ERR_MALFORMED_PACKET;
@@ -77,9 +84,12 @@ int handle__connack(struct mosquitto *context)
 		}
 
 		/* receive-maximum */
-		mosquitto_property_read_int16(properties, MQTT_PROP_RECEIVE_MAXIMUM,
-				&context->msgs_out.inflight_maximum, false);
-		context->msgs_out.inflight_quota = context->msgs_out.inflight_maximum;
+		inflight_maximum = context->msgs_out.inflight_maximum;
+		mosquitto_property_read_int16(properties, MQTT_PROP_RECEIVE_MAXIMUM, &inflight_maximum, false);
+		if(context->msgs_out.inflight_maximum != inflight_maximum){
+			context->msgs_out.inflight_maximum = inflight_maximum;
+			db__message_reconnect_reset(context);
+		}
 
 		/* retain-available */
 		if(mosquitto_property_read_byte(properties, MQTT_PROP_RETAIN_AVAILABLE,
@@ -153,7 +163,7 @@ int handle__connack(struct mosquitto *context)
 					log__printf(NULL, MOSQ_LOG_ERR, "Connection Refused: broker unavailable");
 					return MOSQ_ERR_CONN_LOST;
 				case CONNACK_REFUSED_BAD_USERNAME_PASSWORD:
-					log__printf(NULL, MOSQ_LOG_ERR, "Connection Refused: broker unavailable");
+					log__printf(NULL, MOSQ_LOG_ERR, "Connection Refused: bad user name or password");
 					return MOSQ_ERR_CONN_LOST;
 				case CONNACK_REFUSED_NOT_AUTHORIZED:
 					log__printf(NULL, MOSQ_LOG_ERR, "Connection Refused: not authorised");

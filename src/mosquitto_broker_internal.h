@@ -4,12 +4,12 @@ Copyright (c) 2009-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -306,6 +306,7 @@ struct mosquitto__config {
 	struct mosquitto__security_options security_options;
 };
 
+
 struct mosquitto__subleaf {
 	struct mosquitto__subleaf *prev;
 	struct mosquitto__subleaf *next;
@@ -314,12 +315,6 @@ struct mosquitto__subleaf {
 	uint8_t qos;
 	bool no_local;
 	bool retain_as_published;
-};
-
-
-struct mosquitto__subshared_ref {
-	struct mosquitto__subhier *hier;
-	struct mosquitto__subshared *shared;
 };
 
 
@@ -337,6 +332,12 @@ struct mosquitto__subhier {
 	struct mosquitto__subshared *shared;
 	char *topic;
 	uint16_t topic_len;
+};
+
+struct mosquitto__client_sub {
+	struct mosquitto__subhier *hier;
+	struct mosquitto__subshared *shared;
+	char topic_filter[];
 };
 
 struct sub__token {
@@ -393,7 +394,7 @@ struct mosquitto_client_msg{
 	bool retain;
 	enum mosquitto_msg_direction direction;
 	enum mosquitto_msg_state state;
-	bool dup;
+	uint8_t dup;
 };
 
 
@@ -650,7 +651,7 @@ void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_d
 int db__messages_delete(struct mosquitto *context, bool force_free);
 int db__messages_easy_queue(struct mosquitto *context, const char *topic, uint8_t qos, uint32_t payloadlen, const void *payload, int retain, uint32_t message_expiry_interval, mosquitto_property **properties);
 int db__message_store(const struct mosquitto *source, struct mosquitto_msg_store *stored, uint32_t message_expiry_interval, dbid_t store_id, enum mosquitto_msg_origin origin);
-int db__message_store_find(struct mosquitto *context, uint16_t mid, struct mosquitto_msg_store **stored);
+int db__message_store_find(struct mosquitto *context, uint16_t mid, struct mosquitto_client_msg **client_msg);
 void db__msg_store_add(struct mosquitto_msg_store *store);
 void db__msg_store_remove(struct mosquitto_msg_store *store);
 void db__msg_store_ref_inc(struct mosquitto_msg_store *store);
@@ -667,6 +668,9 @@ int db__message_write_inflight_out_all(struct mosquitto *context);
 int db__message_write_inflight_out_latest(struct mosquitto *context);
 int db__message_write_queued_out(struct mosquitto *context);
 int db__message_write_queued_in(struct mosquitto *context);
+void db__msg_add_to_inflight_stats(struct mosquitto_msg_data *msg_data, struct mosquitto_client_msg *msg);
+void db__msg_add_to_queued_stats(struct mosquitto_msg_data *msg_data, struct mosquitto_client_msg *msg);
+void db__expire_all_messages(struct mosquitto *context);
 
 /* ============================================================
  * Subscription functions
@@ -689,6 +693,7 @@ void context__disconnect(struct mosquitto *context);
 void context__add_to_disused(struct mosquitto *context);
 void context__free_disused(void);
 void context__send_will(struct mosquitto *context);
+void context__add_to_by_id(struct mosquitto *context);
 void context__remove_from_by_id(struct mosquitto *context);
 
 int connect__on_authorised(struct mosquitto *context, void *auth_data_out, uint16_t auth_data_out_len);
@@ -814,6 +819,7 @@ void unpwd__free_item(struct mosquitto__unpwd **unpwd, struct mosquitto__unpwd *
  * Session expiry
  * ============================================================ */
 int session_expiry__add(struct mosquitto *context);
+int session_expiry__add_from_persistence(struct mosquitto *context, time_t expiry_time);
 void session_expiry__remove(struct mosquitto *context);
 void session_expiry__remove_all(void);
 void session_expiry__check(void);

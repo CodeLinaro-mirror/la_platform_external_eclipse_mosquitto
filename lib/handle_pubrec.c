@@ -49,6 +49,9 @@ int handle__pubrec(struct mosquitto *mosq)
 	if(mosquitto__get_state(mosq) != mosq_cs_active){
 		return MOSQ_ERR_PROTOCOL;
 	}
+	if(mosq->in_packet.command != CMD_PUBREC){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
 
 	rc = packet__read_uint16(&mosq->in_packet, &mid);
 	if(rc) return rc;
@@ -58,16 +61,36 @@ int handle__pubrec(struct mosquitto *mosq)
 		rc = packet__read_byte(&mosq->in_packet, &reason_code);
 		if(rc) return rc;
 
+		if(reason_code != MQTT_RC_SUCCESS
+				&& reason_code != MQTT_RC_NO_MATCHING_SUBSCRIBERS
+				&& reason_code != MQTT_RC_UNSPECIFIED
+				&& reason_code != MQTT_RC_IMPLEMENTATION_SPECIFIC
+				&& reason_code != MQTT_RC_NOT_AUTHORIZED
+				&& reason_code != MQTT_RC_TOPIC_NAME_INVALID
+				&& reason_code != MQTT_RC_PACKET_ID_IN_USE
+				&& reason_code != MQTT_RC_QUOTA_EXCEEDED){
+
+			return MOSQ_ERR_PROTOCOL;
+		}
+
 		if(mosq->in_packet.remaining_length > 3){
 			rc = property__read_all(CMD_PUBREC, &mosq->in_packet, &properties);
 			if(rc) return rc;
+
 			/* Immediately free, we don't do anything with Reason String or User Property at the moment */
 			mosquitto_property_free_all(&properties);
 		}
 	}
 
+	if(mosq->in_packet.pos < mosq->in_packet.remaining_length){
 #ifdef WITH_BROKER
-	log__printf(NULL, MOSQ_LOG_DEBUG, "Received PUBREC from %s (Mid: %d)", mosq->id, mid);
+		mosquitto_property_free_all(&properties);
+#endif
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
+
+#ifdef WITH_BROKER
+	log__printf(NULL, MOSQ_LOG_DEBUG, "Received PUBREC from %s (Mid: %d)", SAFE_PRINT(mosq->id), mid);
 
 	if(reason_code < 0x80){
 		rc = db__message_update_outgoing(mosq, mid, mosq_ms_wait_for_pubcomp, 2);
@@ -76,7 +99,7 @@ int handle__pubrec(struct mosquitto *mosq)
 	}
 #else
 
-	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received PUBREC (Mid: %d)", mosq->id, mid);
+	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received PUBREC (Mid: %d)", SAFE_PRINT(mosq->id), mid);
 
 	if(reason_code < 0x80 || mosq->protocol != mosq_p_mqtt5){
 		rc = message__out_update(mosq, mid, mosq_ms_wait_for_pubcomp, 2);
@@ -99,7 +122,7 @@ int handle__pubrec(struct mosquitto *mosq)
 	}
 #endif
 	if(rc == MOSQ_ERR_NOT_FOUND){
-		log__printf(mosq, MOSQ_LOG_WARNING, "Warning: Received PUBREC from %s for an unknown packet identifier %d.", mosq->id, mid);
+		log__printf(mosq, MOSQ_LOG_WARNING, "Warning: Received PUBREC from %s for an unknown packet identifier %d.", SAFE_PRINT(mosq->id), mid);
 	}else if(rc != MOSQ_ERR_SUCCESS){
 		return rc;
 	}

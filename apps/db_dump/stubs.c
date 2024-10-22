@@ -17,6 +17,11 @@ struct mosquitto *context__init(mosq_sock_t sock)
 	return NULL;
 }
 
+void context__add_to_by_id(struct mosquitto *context)
+{
+	UNUSED(context);
+}
+
 int db__message_store(const struct mosquitto *source, struct mosquitto_msg_store *stored, uint32_t message_expiry_interval, dbid_t store_id, enum mosquitto_msg_origin origin)
 {
 	UNUSED(source);
@@ -120,5 +125,24 @@ int sub__messages_queue(const char *source_id, const char *topic, uint8_t qos, i
 int keepalive__update(struct mosquitto *context)
 {
 	UNUSED(context);
+	return 0;
+}
+
+void db__msg_add_to_inflight_stats(struct mosquitto_msg_data *msg_data, struct mosquitto_client_msg *msg)
+{
+	UNUSED(msg_data);
+	UNUSED(msg);
+}
+
+void db__msg_add_to_queued_stats(struct mosquitto_msg_data *msg_data, struct mosquitto_client_msg *msg)
+{
+	UNUSED(msg_data);
+	UNUSED(msg);
+}
+
+int session_expiry__add_from_persistence(struct mosquitto *context, time_t expiry_time)
+{
+	UNUSED(context);
+	UNUSED(expiry_time);
 	return 0;
 }

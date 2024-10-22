@@ -50,11 +50,18 @@ int handle__unsuback(struct mosquitto *mosq)
 	if(mosquitto__get_state(mosq) != mosq_cs_active){
 		return MOSQ_ERR_PROTOCOL;
 	}
+	if(mosq->in_packet.command != CMD_UNSUBACK){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
 
 #ifdef WITH_BROKER
-	log__printf(NULL, MOSQ_LOG_DEBUG, "Received UNSUBACK from %s", mosq->id);
+	if(mosq->bridge == NULL){
+		/* Client is not a bridge, so shouldn't be sending SUBACK */
+		return MOSQ_ERR_PROTOCOL;
+	}
+	log__printf(NULL, MOSQ_LOG_DEBUG, "Received UNSUBACK from %s", SAFE_PRINT(mosq->id));
 #else
-	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received UNSUBACK", mosq->id);
+	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received UNSUBACK", SAFE_PRINT(mosq->id));
 #endif
 	rc = packet__read_uint16(&mosq->in_packet, &mid);
 	if(rc) return rc;

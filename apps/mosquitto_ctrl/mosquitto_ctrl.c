@@ -24,6 +24,10 @@ Contributors:
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef WIN32
+#  include <strings.h>
+#endif
+
 #include "lib_load.h"
 #include "mosquitto.h"
 #include "mosquitto_ctrl.h"
@@ -74,7 +78,7 @@ int main(int argc, char *argv[])
 		print_usage();
 		return 1;
 	}
- 
+
 	/* In built modules */
 	if(!strcasecmp(argv[0], "dynsec")){
 		l_ctrl_main = dynsec__main;

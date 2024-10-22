@@ -4,12 +4,12 @@ Copyright (c) 2013-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -34,9 +34,12 @@ Contributors:
 
 #ifdef WITH_SRV
 static void srv_callback(void *arg, int status, int timeouts, unsigned char *abuf, int alen)
-{   
+{
 	struct mosquitto *mosq = arg;
 	struct ares_srv_reply *reply = NULL;
+
+	UNUSED(timeouts);
+
 	if(status == ARES_SUCCESS){
 		status = ares_parse_srv_reply(abuf, alen, &reply);
 		if(status == ARES_SUCCESS){
@@ -68,6 +71,8 @@ int mosquitto_connect_srv(struct mosquitto *mosq, const char *host, int keepaliv
 	char *h;
 	int rc;
 	if(!mosq) return MOSQ_ERR_INVAL;
+
+	UNUSED(bind_address);
 
 	if(keepalive < 0 || keepalive > UINT16_MAX){
 		return MOSQ_ERR_INVAL;

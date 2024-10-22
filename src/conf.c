@@ -187,7 +187,7 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->log_timestamp = true;
 	mosquitto__free(config->log_timestamp_format);
 	config->log_timestamp_format = NULL;
-	config->max_keepalive = 65535;
+	config->max_keepalive = 0;
 	config->max_packet_size = 0;
 	config->max_inflight_messages = 20;
 	config->max_queued_messages = 1000;
@@ -479,7 +479,6 @@ int config__parse_args(struct mosquitto__config *config, int argc, char *argv[])
 		config->listeners[config->listener_count-1].max_connections = config->default_listener.max_connections;
 		config->listeners[config->listener_count-1].protocol = config->default_listener.protocol;
 		config->listeners[config->listener_count-1].socket_domain = config->default_listener.socket_domain;
-		config->listeners[config->listener_count-1].client_count = 0;
 		config->listeners[config->listener_count-1].socks = NULL;
 		config->listeners[config->listener_count-1].sock_count = 0;
 		config->listeners[config->listener_count-1].client_count = 0;
@@ -741,6 +740,7 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 	size_t prefix_len;
 	char **files;
 	int file_count;
+	size_t slen;
 #ifdef WITH_TLS
 	char *kpass_sha = NULL, *kpass_sha_bin = NULL;
 	char *keyform ;
@@ -751,8 +751,16 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 	while(fgets_extending(buf, buflen, fptr)){
 		(*lineno)++;
 		if((*buf)[0] != '#' && (*buf)[0] != 10 && (*buf)[0] != 13){
-			while((*buf)[strlen((*buf))-1] == 10 || (*buf)[strlen((*buf))-1] == 13){
-				(*buf)[strlen((*buf))-1] = 0;
+			slen = strlen(*buf);
+			if(slen == 0){
+				continue;
+			}
+			while((*buf)[slen-1] == 10 || (*buf)[slen-1] == 13){
+				(*buf)[slen-1] = 0;
+				slen = strlen(*buf);
+				if(slen == 0){
+					continue;
+				}
 			}
 			token = strtok_r((*buf), " ", &saveptr);
 			if(token){
@@ -1184,7 +1192,7 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: TLS support not available.");
 #endif
 				}else if(!strcmp(token, "ciphers_tls1.3")){
-#if defined(WITH_TLS) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(WITH_TLS) && (!defined(LIBRESSL_VERSION_NUMBER) || LIBRESSL_VERSION_NUMBER > 0x3040000FL)
 					if(reload) continue; /* Listeners not valid for reloading. */
 					if(conf__parse_string(&token, "ciphers_tls1.3", &cur_listener->ciphers_tls13, saveptr)) return MOSQ_ERR_INVAL;
 #else
@@ -1525,15 +1533,16 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 						}else if(!strcmp(token, "dlt")){
 							cr->log_dest |= MQTT3_LOG_DLT;
 						}else if(!strcmp(token, "file")){
-							cr->log_dest |= MQTT3_LOG_FILE;
 							if(config->log_fptr || config->log_file){
 								log__printf(NULL, MOSQ_LOG_ERR, "Error: Duplicate \"log_dest file\" value.");
 								return MOSQ_ERR_INVAL;
 							}
 							/* Get remaining string. */
-							token = &token[strlen(token)+1];
-							while(token[0] == ' ' || token[0] == '\t'){
-								token++;
+							token = saveptr;
+							if(token && token[0]){
+								while(token[0] == ' ' || token[0] == '\t'){
+									token++;
+								}
 							}
 							if(token[0]){
 								config->log_file = mosquitto__strdup(token);
@@ -1545,6 +1554,7 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 								log__printf(NULL, MOSQ_LOG_ERR, "Error: Empty \"log_dest file\" value in configuration.");
 								return MOSQ_ERR_INVAL;
 							}
+							cr->log_dest |= MQTT3_LOG_FILE;
 						}else{
 							log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid log_dest value (%s).", token);
 							return MOSQ_ERR_INVAL;
@@ -1667,7 +1677,7 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 					config->max_inflight_messages = (uint16_t)tmp_int;
 				}else if(!strcmp(token, "max_keepalive")){
 					if(conf__parse_int(&token, "max_keepalive", &tmp_int, saveptr)) return MOSQ_ERR_INVAL;
-					if(tmp_int < 10 || tmp_int > UINT16_MAX){
+					if(tmp_int < 0 || tmp_int > UINT16_MAX){
 						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid max_keepalive value (%d).", tmp_int);
 						return MOSQ_ERR_INVAL;
 					}
@@ -1889,6 +1899,8 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 						return MOSQ_ERR_INVAL;
 					}
 					cur_bridge->restart_timeout = atoi(token);
+					cur_bridge->backoff_base = 0;
+					cur_bridge->backoff_cap = 0;
 					if(cur_bridge->restart_timeout < 1){
 						log__printf(NULL, MOSQ_LOG_NOTICE, "restart_timeout interval too low, using 1 second.");
 						cur_bridge->restart_timeout = 1;

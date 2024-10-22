@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -20,6 +20,10 @@ Contributors:
 
 #include <errno.h>
 #include <string.h>
+
+#ifndef WIN32
+#  include <strings.h>
+#endif
 
 #include "mosquitto.h"
 #include "mqtt_protocol.h"
@@ -42,7 +46,7 @@ const char *mosquitto_strerror(int mosq_errno)
 		case MOSQ_ERR_PROTOCOL:
 			return "A network protocol error occurred when communicating with the broker.";
 		case MOSQ_ERR_INVAL:
-			return "Invalid function arguments provided.";
+			return "Invalid arguments provided.";
 		case MOSQ_ERR_NO_CONN:
 			return "The client is not currently connected.";
 		case MOSQ_ERR_CONN_REFUSED:
@@ -71,6 +75,10 @@ const char *mosquitto_strerror(int mosq_errno)
 			return "Proxy error.";
 		case MOSQ_ERR_MALFORMED_UTF8:
 			return "Malformed UTF-8";
+		case MOSQ_ERR_KEEPALIVE:
+			return "Keepalive exceeded";
+		case MOSQ_ERR_LOOKUP:
+			return "DNS Lookup failed";
 		case MOSQ_ERR_DUPLICATE_PROPERTY:
 			return "Duplicate property in property list";
 		case MOSQ_ERR_TLS_HANDSHAKE:

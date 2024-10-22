@@ -32,7 +32,7 @@ Contributors:
 
 static void connack_callback(struct mosquitto *mosq, uint8_t reason_code, uint8_t connect_flags, const mosquitto_property *properties)
 {
-	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received CONNACK (%d)", mosq->id, reason_code);
+	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received CONNACK (%d)", SAFE_PRINT(mosq->id), reason_code);
 	if(reason_code == MQTT_RC_SUCCESS){
 		mosq->reconnects = 0;
 	}
@@ -65,6 +65,10 @@ int handle__connack(struct mosquitto *mosq)
 	char *clientid = NULL;
 
 	assert(mosq);
+	if(mosq->in_packet.command != CMD_CONNACK){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
+
 	rc = packet__read_byte(&mosq->in_packet, &connect_flags);
 	if(rc) return rc;
 	rc = packet__read_byte(&mosq->in_packet, &reason_code);

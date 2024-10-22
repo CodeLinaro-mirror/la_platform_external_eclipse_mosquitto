@@ -120,8 +120,12 @@
 			connections. It is strongly recommended that you use an encrypted
 			connection for anything more than the most basic setup.</para>
 		<para>To enable TLS connections when using x509 certificates, one of
-			either <option>--cafile</option> or <option>--capath</option> must
+			either <option>--cafile</option> or <option>--capath</option> can
 			be provided as an option.</para>
+		<para>Alternatively, if the <option>-p 8883</option> option is used
+			then the OS provided certificates will be loaded and neither
+			<option>--cafile</option> or <option>--capath</option> are
+			needed</para>
 		<para>To enable TLS connections when using TLS-PSK, you must use the
 			<option>--psk</option> and the <option>--psk-identity</option>
 			options.</para>
@@ -647,7 +651,7 @@ mosquitto_sub -t 'bbc/#' -T bbc/bbc1 --remove-retained</programlisting>
 				<listitem>
                     <para>
                         If used, this will load and trust the OS provided CA
-                        certificates. This can be used in conjunction with 
+                        certificates. This can be used in conjunction with
                         <option>--cafile</option> and <option>--capath</option>
                         and can be used on its own to enable TLS mode. This
 						will be set by default if <option>-L mqtts://...</option>
@@ -885,7 +889,7 @@ mosquitto_sub -t 'bbc/#' -T bbc/bbc1 --remove-retained</programlisting>
                 </para>
 				<para>
 					For example <option>%10.10t</option> would set the minimum topic
-					field width to 10 characters, and the maximum topic width to 
+					field width to 10 characters, and the maximum topic width to
                     10 characters, i.e. the field will always be exactly 10
                     characters long.
 				</para>
@@ -934,7 +938,6 @@ mosquitto_sub -t 'bbc/#' -T bbc/bbc1 --remove-retained</programlisting>
 					<para>If the payload is not valid JSON, then the error message "Error: Message payload is not valid JSON on topic
 						&lt;topic&gt;" will be printed to stderr.</para></listitem>
 
-				<listitem><para><option>%I</option> ISO-8601 format date and time, e.g. 2016-08-10T09:47:38+0100</para></listitem>
 				<listitem><para><option>%U</option> Unix timestamp with nanoseconds, e.g. 1470818943.786368637</para></listitem>
 			</itemizedlist>
 		</refsect2>

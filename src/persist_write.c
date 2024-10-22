@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -47,8 +47,6 @@ static int persist__client_messages_save(FILE *db_fptr, struct mosquitto *contex
 	assert(db_fptr);
 	assert(context);
 
-	memset(&chunk, 0, sizeof(struct P_client_msg));
-
 	cmsg = queue;
 	while(cmsg){
 		if(!strncmp(cmsg->store->topic, "$SYS", 4)
@@ -60,6 +58,8 @@ static int persist__client_messages_save(FILE *db_fptr, struct mosquitto *contex
 			cmsg = cmsg->next;
 			continue;
 		}
+
+		memset(&chunk, 0, sizeof(struct P_client_msg));
 
 		chunk.F.store_id = cmsg->store->db_id;
 		chunk.F.mid = cmsg->mid;
@@ -91,14 +91,14 @@ static int persist__message_store_save(FILE *db_fptr)
 
 	assert(db_fptr);
 
-	memset(&chunk, 0, sizeof(struct P_msg_store));
-
 	stored = db.msg_store;
 	while(stored){
 		if(stored->ref_count < 1 || stored->topic == NULL){
 			stored = stored->next;
 			continue;
 		}
+
+		memset(&chunk, 0, sizeof(struct P_msg_store));
 
 		if(!strncmp(stored->topic, "$SYS", 4)){
 			if(stored->ref_count <= 1 && stored->dest_id_count == 0){
@@ -164,11 +164,23 @@ static int persist__client_save(FILE *db_fptr)
 
 	assert(db_fptr);
 
-	memset(&chunk, 0, sizeof(struct P_client));
-
 	HASH_ITER(hh_id, db.contexts_by_id, context, ctxt_tmp){
-		if(context && context->clean_start == false){
+		memset(&chunk, 0, sizeof(struct P_client));
+
+		if(context &&
+#ifdef WITH_BRIDGE
+				((!context->bridge && context->clean_start == false)
+				|| (context->bridge && context->bridge->clean_start_local == false))
+#else
+				context->clean_start == false
+#endif
+				){
 			chunk.F.session_expiry_time = context->session_expiry_time;
+			if(context->session_expiry_interval != 0 && context->session_expiry_interval != UINT32_MAX && context->session_expiry_time == 0){
+				chunk.F.session_expiry_time = context->session_expiry_interval + db.now_real_s;
+			}else{
+				chunk.F.session_expiry_time = context->session_expiry_time;
+			}
 			chunk.F.session_expiry_interval = context->session_expiry_interval;
 			chunk.F.last_mid = context->last_mid;
 			chunk.F.id_len = (uint16_t)strlen(context->id);
@@ -212,8 +224,6 @@ static int persist__subs_save(FILE *db_fptr, struct mosquitto__subhier *node, co
 	size_t slen;
 	int rc;
 
-	memset(&sub_chunk, 0, sizeof(struct P_sub));
-
 	slen = strlen(topic) + node->topic_len + 2;
 	thistopic = mosquitto__malloc(sizeof(char)*slen);
 	if(!thistopic) return MOSQ_ERR_NOMEM;
@@ -226,6 +236,8 @@ static int persist__subs_save(FILE *db_fptr, struct mosquitto__subhier *node, co
 	sub = node->subs;
 	while(sub){
 		if(sub->context->clean_start == false && sub->context->id){
+			memset(&sub_chunk, 0, sizeof(struct P_sub));
+
 			sub_chunk.F.identifier = sub->identifier;
 			sub_chunk.F.id_len = (uint16_t)strlen(sub->context->id);
 			sub_chunk.F.topic_len = (uint16_t)strlen(thistopic);
@@ -269,10 +281,10 @@ static int persist__retain_save(FILE *db_fptr, struct mosquitto__retainhier *nod
 	struct P_retain retain_chunk;
 	int rc;
 
-	memset(&retain_chunk, 0, sizeof(struct P_retain));
-
 	if(node->retained && strncmp(node->retained->topic, "$SYS", 4)){
 		/* Don't save $SYS messages. */
+		memset(&retain_chunk, 0, sizeof(struct P_retain));
+
 		retain_chunk.F.store_id = node->retained->db_id;
 		rc = persist__chunk_retain_write_v6(db_fptr, &retain_chunk);
 		if(rc){
@@ -295,7 +307,7 @@ static int persist__retain_save_all(FILE *db_fptr)
 			persist__retain_save(db_fptr, retainhier->children, 0);
 		}
 	}
-	
+
 	return MOSQ_ERR_SUCCESS;
 }
 
@@ -389,9 +401,9 @@ int persist__backup(bool shutdown)
 	* written to disk.  Need to flush to send data from app to OS
 	* buffers, then fsync to deliver data from OS buffers to disk
 	* (as well as disk hardware permits).
-	* 
+	*
 	* man close (http://linux.die.net/man/2/close, 2016-06-20):
-	* 
+	*
 	*   "successful close does not guarantee that the data has
 	*   been successfully saved to disk, as the kernel defers
 	*   writes.  It is not common for a filesystem to flush

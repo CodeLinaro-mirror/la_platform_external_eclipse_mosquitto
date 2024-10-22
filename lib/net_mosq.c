@@ -250,6 +250,7 @@ int net__socket_close(struct mosquitto *mosq)
 #ifdef WITH_BROKER
 	if(mosq->listener){
 		mosq->listener->client_count--;
+		mosq->listener = NULL;
 	}
 #endif
 
@@ -568,31 +569,7 @@ int net__socket_connect_tls(struct mosquitto *mosq)
 			return MOSQ_ERR_OCSP;
 		}
 	}
-
-	ret = SSL_connect(mosq->ssl);
-	if(ret != 1) {
-		err = SSL_get_error(mosq->ssl, ret);
-		if (err == SSL_ERROR_SYSCALL) {
-			mosq->want_connect = true;
-			return MOSQ_ERR_SUCCESS;
-		}
-		if(err == SSL_ERROR_WANT_READ){
-			mosq->want_connect = true;
-			/* We always try to read anyway */
-		}else if(err == SSL_ERROR_WANT_WRITE){
-			mosq->want_write = true;
-			mosq->want_connect = true;
-		}else{
-			net__print_ssl_error(mosq);
-
-			COMPAT_CLOSE(mosq->sock);
-			mosq->sock = INVALID_SOCKET;
-			net__print_ssl_error(mosq);
-			return MOSQ_ERR_TLS;
-		}
-	}else{
-		mosq->want_connect = false;
-	}
+	SSL_set_connect_state(mosq->ssl);
 	return MOSQ_ERR_SUCCESS;
 }
 #endif
@@ -668,21 +645,24 @@ static int net__init_ssl_ctx(struct mosquitto *mosq)
 	EVP_PKEY *pkey;
 #endif
 
-	if(mosq->ssl_ctx){
+#ifndef WITH_BROKER
+	if(mosq->user_ssl_ctx){
+		mosq->ssl_ctx = mosq->user_ssl_ctx;
 		if(!mosq->ssl_ctx_defaults){
 			return MOSQ_ERR_SUCCESS;
 		}else if(!mosq->tls_cafile && !mosq->tls_capath && !mosq->tls_psk){
-			log__printf(mosq, MOSQ_LOG_ERR, "Error: MOSQ_OPT_SSL_CTX_WITH_DEFAULTS used without specifying cafile, capath or psk.");
+			log__printf(mosq, MOSQ_LOG_ERR, "Error: If you use MOSQ_OPT_SSL_CTX then MOSQ_OPT_SSL_CTX_WITH_DEFAULTS must be true, or at least one of cafile, capath or psk must be specified.");
 			return MOSQ_ERR_INVAL;
 		}
 	}
+#endif
 
 	/* Apply default SSL_CTX settings. This is only used if MOSQ_OPT_SSL_CTX
 	 * has not been set, or if both of MOSQ_OPT_SSL_CTX and
 	 * MOSQ_OPT_SSL_CTX_WITH_DEFAULTS are set. */
 	if(mosq->tls_cafile || mosq->tls_capath || mosq->tls_psk || mosq->tls_use_os_certs){
+		net__init_tls();
 		if(!mosq->ssl_ctx){
-			net__init_tls();
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
 			mosq->ssl_ctx = SSL_CTX_new(SSLv23_client_method());
@@ -696,6 +676,12 @@ static int net__init_ssl_ctx(struct mosquitto *mosq)
 				return MOSQ_ERR_TLS;
 			}
 		}
+
+#ifdef SSL_OP_NO_TLSv1_3
+		if(mosq->tls_psk){
+			SSL_CTX_set_options(mosq->ssl_ctx, SSL_OP_NO_TLSv1_3);
+		}
+#endif
 
 		if(!mosq->tls_version){
 			SSL_CTX_set_options(mosq->ssl_ctx, SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1);
@@ -856,6 +842,9 @@ static int net__init_ssl_ctx(struct mosquitto *mosq)
 #ifdef FINAL_WITH_TLS_PSK
 		}else if(mosq->tls_psk){
 			SSL_CTX_set_psk_client_callback(mosq->ssl_ctx, psk_client_callback);
+			if(mosq->tls_ciphers == NULL){
+				SSL_CTX_set_cipher_list(mosq->ssl_ctx, "PSK");
+			}
 #endif
 		}
 	}
@@ -910,6 +899,9 @@ int net__socket_connect_step3(struct mosquitto *mosq, const char *host)
 		}
 
 	}
+#else
+	UNUSED(mosq);
+	UNUSED(host);
 #endif
 	return MOSQ_ERR_SUCCESS;
 }
@@ -1025,11 +1017,7 @@ ssize_t net__write(struct mosquitto *mosq, const void *buf, size_t count)
 		/* Call normal write/send */
 #endif
 
-#ifndef WIN32
-	return write(mosq->sock, buf, count);
-#else
-	return send(mosq->sock, buf, count, 0);
-#endif
+	return send(mosq->sock, buf, count, MSG_NOSIGNAL);
 
 #ifdef WITH_TLS
 	}
@@ -1203,6 +1191,8 @@ void *mosquitto_ssl_get(struct mosquitto *mosq)
 #ifdef WITH_TLS
 	return mosq->ssl;
 #else
+	UNUSED(mosq);
+
 	return NULL;
 #endif
 }

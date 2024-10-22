@@ -22,10 +22,17 @@ Contributors:
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef WIN32
+#  include <errno.h>
+#  include <fcntl.h>
+#  include <strings.h>
+#endif
+
 #include "mosquitto_ctrl.h"
 #include "mosquitto.h"
 #include "password_mosq.h"
 #include "get_password.h"
+#include "misc_mosq.h"
 
 void dynsec__print_usage(void)
 {
@@ -373,7 +380,7 @@ static void print_default_acl_access(cJSON *j_response)
 		if(j_acltype == NULL || !cJSON_IsString(j_acltype)
 				|| j_allow == NULL || !cJSON_IsBool(j_allow)
 				){
-			
+
 			fprintf(stderr, "Error: Invalid response from server.\n");
 			return;
 		}
@@ -455,6 +462,7 @@ static void dynsec__payload_callback(struct mosq_ctrl *ctrl, long payloadlen, co
 static int dynsec__set_default_acl_access(int argc, char *argv[], cJSON *j_command)
 {
 	char *acltype, *access;
+	bool b_access;
 	cJSON *j_acls, *j_acl;
 
 	if(argc == 2){
@@ -472,7 +480,11 @@ static int dynsec__set_default_acl_access(int argc, char *argv[], cJSON *j_comma
 		return MOSQ_ERR_INVAL;
 	}
 
-	if(strcasecmp(access, "allow") && strcasecmp(access, "deny")){
+	if(!strcasecmp(access, "allow")){
+		b_access = true;
+	}else if(!strcasecmp(access, "deny")){
+		b_access = false;
+	}else{
 		fprintf(stderr, "Error: access must be \"allow\" or \"deny\".\n");
 		return MOSQ_ERR_INVAL;
 	}
@@ -490,7 +502,7 @@ static int dynsec__set_default_acl_access(int argc, char *argv[], cJSON *j_comma
 	}
 	cJSON_AddItemToArray(j_acls, j_acl);
 	if(cJSON_AddStringToObject(j_acl, "acltype", acltype) == NULL
-			|| cJSON_AddStringToObject(j_acl, "access", access) == NULL
+			|| cJSON_AddBoolToObject(j_acl, "allow", b_access) == NULL
 			){
 
 		return MOSQ_ERR_NOMEM;
@@ -729,13 +741,6 @@ static int dynsec_init(int argc, char *argv[])
 		admin_password = password;
 	}
 
-	fptr = fopen(filename, "rb");
-	if(fptr){
-		fclose(fptr);
-		fprintf(stderr, "dynsec init: '%s' already exists. Remove the file or use a different location..\n", filename);
-		return -1;
-	}
-
 	tree = init_create(admin_user, admin_password, "admin");
 	if(tree == NULL){
 		fprintf(stderr, "dynsec init: Out of memory.\n");
@@ -744,7 +749,17 @@ static int dynsec_init(int argc, char *argv[])
 	json_str = cJSON_Print(tree);
 	cJSON_Delete(tree);
 
-	fptr = fopen(filename, "wb");
+#ifdef WIN32
+	fptr = mosquitto__fopen(filename, "wb", true);
+#else
+	int fd = open(filename, O_CREAT | O_EXCL | O_WRONLY, 0640);
+	if(fd < 0){
+		free(json_str);
+		fprintf(stderr, "dynsec init: Unable to open '%s' for writing (%s).\n", filename, strerror(errno));
+		return -1;
+	}
+	fptr = fdopen(fd, "wb");
+#endif
 	if(fptr){
 		fprintf(fptr, "%s", json_str);
 		free(json_str);

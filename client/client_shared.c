@@ -4,12 +4,12 @@ Copyright (c) 2014-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -992,7 +992,7 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 			if(cfg->pub_mode != MSGMODE_NONE){
 				fprintf(stderr, "Error: Only one type of message can be sent at once.\n\n");
 				return 1;
-			}else{ 
+			}else{
 				cfg->pub_mode = MSGMODE_STDIN_FILE;
 			}
 #ifdef WITH_SRV
@@ -1253,6 +1253,11 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 		return 1;
 	}
 #ifdef WITH_TLS
+	if(cfg->keyform && mosquitto_string_option(mosq, MOSQ_OPT_TLS_KEYFORM, cfg->keyform)){
+		err_printf(cfg, "Error: Problem setting key form, it must be one of 'pem' or 'engine'.\n");
+		mosquitto_lib_cleanup();
+		return 1;
+	}
 	if(cfg->cafile || cfg->capath){
 		rc = mosquitto_tls_set(mosq, cfg->cafile, cfg->capath, cfg->certfile, cfg->keyfile, NULL);
 		if(rc){
@@ -1286,11 +1291,6 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 	}
 	if(cfg->tls_engine && mosquitto_string_option(mosq, MOSQ_OPT_TLS_ENGINE, cfg->tls_engine)){
 		err_printf(cfg, "Error: Problem setting TLS engine, is %s a valid engine?\n", cfg->tls_engine);
-		mosquitto_lib_cleanup();
-		return 1;
-	}
-	if(cfg->keyform && mosquitto_string_option(mosq, MOSQ_OPT_TLS_KEYFORM, cfg->keyform)){
-		err_printf(cfg, "Error: Problem setting key form, it must be one of 'pem' or 'engine'.\n");
 		mosquitto_lib_cleanup();
 		return 1;
 	}

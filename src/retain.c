@@ -72,6 +72,25 @@ int retain__init(void)
 }
 
 
+void retain__clean_empty_hierarchy(struct mosquitto__retainhier *retainhier)
+{
+	struct mosquitto__retainhier *parent;
+
+	while(retainhier){
+		if(retainhier->children || retainhier->retained || retainhier->parent == NULL){
+			/* Entry is being used */
+			return;
+		}else{
+			HASH_DELETE(hh, retainhier->parent->children, retainhier);
+			mosquitto__free(retainhier->topic);
+			parent = retainhier->parent;
+			mosquitto__free(retainhier);
+			retainhier = parent;
+		}
+	}
+}
+
+
 int retain__store(const char *topic, struct mosquitto_msg_store *stored, char **split_topics)
 {
 	struct mosquitto__retainhier *retainhier;
@@ -106,7 +125,10 @@ int retain__store(const char *topic, struct mosquitto_msg_store *stored, char **
 		 * they aren't for $SYS. */
 		db.persistence_changes++;
 	}
+#else
+	UNUSED(topic);
 #endif
+
 	if(retainhier->retained){
 		db__msg_store_ref_dec(&retainhier->retained);
 #ifdef WITH_SYS_TREE
@@ -121,6 +143,7 @@ int retain__store(const char *topic, struct mosquitto_msg_store *stored, char **
 #endif
 	}else{
 		retainhier->retained = NULL;
+		retain__clean_empty_hierarchy(retainhier);
 	}
 
 	return MOSQ_ERR_SUCCESS;
@@ -261,6 +284,10 @@ int retain__queue(struct mosquitto *context, const char *sub, uint8_t sub_qos, u
 
 	assert(context);
 	assert(sub);
+
+	if(!strncmp(sub, "$share/", strlen("$share/"))){
+		return MOSQ_ERR_SUCCESS;
+	}
 
 	rc = sub__topic_tokenise(sub, &local_sub, &split_topics, NULL);
 	if(rc) return rc;

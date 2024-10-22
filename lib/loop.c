@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -63,26 +63,22 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 	if(mosq->sock != INVALID_SOCKET){
 		maxfd = mosq->sock;
 		FD_SET(mosq->sock, &readfds);
-		pthread_mutex_lock(&mosq->current_out_packet_mutex);
-		pthread_mutex_lock(&mosq->out_packet_mutex);
-		if(mosq->out_packet || mosq->current_out_packet){
+		if(mosq->want_write){
 			FD_SET(mosq->sock, &writefds);
-		}
+		}else{
 #ifdef WITH_TLS
-		if(mosq->ssl){
-			if(mosq->want_write){
-				FD_SET(mosq->sock, &writefds);
-			}else if(mosq->want_connect){
-				/* Remove possible FD_SET from above, we don't want to check
-				 * for writing if we are still connecting, unless want_write is
-				 * definitely set. The presence of outgoing packets does not
-				 * matter yet. */
-				FD_CLR(mosq->sock, &writefds);
+			if(mosq->ssl == NULL || SSL_is_init_finished(mosq->ssl))
+#endif
+			{
+				pthread_mutex_lock(&mosq->current_out_packet_mutex);
+				pthread_mutex_lock(&mosq->out_packet_mutex);
+				if(mosq->out_packet || mosq->current_out_packet){
+					FD_SET(mosq->sock, &writefds);
+				}
+				pthread_mutex_unlock(&mosq->out_packet_mutex);
+				pthread_mutex_unlock(&mosq->current_out_packet_mutex);
 			}
 		}
-#endif
-		pthread_mutex_unlock(&mosq->out_packet_mutex);
-		pthread_mutex_unlock(&mosq->current_out_packet_mutex);
 	}else{
 #ifdef WITH_SRV
 		if(mosq->achan){
@@ -114,9 +110,11 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 	}
 
 	now = mosquitto_time();
+	pthread_mutex_lock(&mosq->msgtime_mutex);
 	if(mosq->next_msg_out && now + timeout_ms/1000 > mosq->next_msg_out){
 		timeout_ms = (mosq->next_msg_out - now)*1000;
 	}
+	pthread_mutex_unlock(&mosq->msgtime_mutex);
 
 	if(timeout_ms < 0){
 		/* There has been a delay somewhere which means we should have already
@@ -167,17 +165,9 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 					FD_SET(mosq->sock, &writefds);
 			}
 			if(mosq->sock != INVALID_SOCKET && FD_ISSET(mosq->sock, &writefds)){
-#ifdef WITH_TLS
-				if(mosq->want_connect){
-					rc = net__socket_connect_tls(mosq);
-					if(rc) return rc;
-				}else
-#endif
-				{
-					rc = mosquitto_loop_write(mosq, max_packets);
-					if(rc || mosq->sock == INVALID_SOCKET){
-						return rc;
-					}
+				rc = mosquitto_loop_write(mosq, max_packets);
+				if(rc || mosq->sock == INVALID_SOCKET){
+					return rc;
 				}
 			}
 		}
@@ -254,7 +244,6 @@ int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 	int run = 1;
 	int rc = MOSQ_ERR_SUCCESS;
 	unsigned long reconnect_delay;
-	enum mosquitto_client_state state;
 
 	if(!mosq) return MOSQ_ERR_INVAL;
 
@@ -293,8 +282,7 @@ int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 			pthread_testcancel();
 #endif
 			rc = MOSQ_ERR_SUCCESS;
-			state = mosquitto__get_state(mosq);
-			if(state == mosq_cs_disconnecting || state == mosq_cs_disconnected){
+			if(mosquitto__get_request_disconnect(mosq)){
 				run = 0;
 			}else{
 				if(mosq->reconnect_delay_max > mosq->reconnect_delay){
@@ -316,8 +304,7 @@ int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 				rc = interruptible_sleep(mosq, (time_t)reconnect_delay);
 				if(rc) return rc;
 
-				state = mosquitto__get_state(mosq);
-				if(state == mosq_cs_disconnecting || state == mosq_cs_disconnected){
+				if(mosquitto__get_request_disconnect(mosq)){
 					run = 0;
 				}else{
 					rc = mosquitto_reconnect(mosq);
@@ -370,12 +357,6 @@ int mosquitto_loop_read(struct mosquitto *mosq, int max_packets)
 	int rc = MOSQ_ERR_SUCCESS;
 	int i;
 	if(max_packets < 1) return MOSQ_ERR_INVAL;
-
-#ifdef WITH_TLS
-	if(mosq->want_connect){
-		return net__socket_connect_tls(mosq);
-	}
-#endif
 
 	pthread_mutex_lock(&mosq->msgs_out.mutex);
 	max_packets = mosq->msgs_out.queue_len;

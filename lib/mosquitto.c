@@ -4,12 +4,12 @@ Copyright (c) 2010-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -61,8 +61,11 @@ int mosquitto_lib_init(void)
 		srand((unsigned int)GetTickCount64());
 #elif _POSIX_TIMERS>0 && defined(_POSIX_MONOTONIC_CLOCK)
 		struct timespec tp;
-
+#ifdef CLOCK_BOOTTIME
+		clock_gettime(CLOCK_BOOTTIME, &tp);
+#else
 		clock_gettime(CLOCK_MONOTONIC, &tp);
+#endif
 		srand((unsigned int)tp.tv_nsec);
 #elif defined(__APPLE__)
 		uint64_t ticks;
@@ -109,10 +112,6 @@ struct mosquitto *mosquitto_new(const char *id, bool clean_start, void *userdata
 		return NULL;
 	}
 
-#ifndef WIN32
-	signal(SIGPIPE, SIG_IGN);
-#endif
-
 	mosq = (struct mosquitto *)mosquitto__calloc(1, sizeof(struct mosquitto));
 	if(mosq){
 		mosq->sock = INVALID_SOCKET;
@@ -155,6 +154,8 @@ int mosquitto_reinitialise(struct mosquitto *mosq, const char *id, bool clean_st
 	}
 	mosq->protocol = mosq_p_mqtt311;
 	mosq->sock = INVALID_SOCKET;
+	mosq->sockpairR = INVALID_SOCKET;
+	mosq->sockpairW = INVALID_SOCKET;
 	mosq->keepalive = 60;
 	mosq->clean_start = clean_start;
 	if(id){
@@ -165,6 +166,9 @@ int mosquitto_reinitialise(struct mosquitto *mosq, const char *id, bool clean_st
 			return MOSQ_ERR_MALFORMED_UTF8;
 		}
 		mosq->id = mosquitto__strdup(id);
+		if(!mosq->id){
+			return MOSQ_ERR_NOMEM;
+		}
 	}
 	mosq->in_packet.payload = NULL;
 	packet__cleanup(&mosq->in_packet);
@@ -328,20 +332,7 @@ int mosquitto_socket(struct mosquitto *mosq)
 
 bool mosquitto_want_write(struct mosquitto *mosq)
 {
-	bool result = false;
-	if(mosq->out_packet || mosq->current_out_packet){
-		result = true;
-	}
-#ifdef WITH_TLS
-	if(mosq->ssl){
-		if (mosq->want_write) {
-			result = true;
-		}else if(mosq->want_connect){
-			result = false;
-		}
-	}
-#endif
-	return result;
+	return mosq->out_packet || mosq->current_out_packet || mosq->want_write;
 }
 
 

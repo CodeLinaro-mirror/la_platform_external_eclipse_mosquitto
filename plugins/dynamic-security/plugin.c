@@ -25,6 +25,10 @@ Contributors:
 #include <string.h>
 #include <sys/stat.h>
 
+#ifndef WIN32
+#  include <strings.h>
+#endif
+
 #include "json_help.h"
 #include "mosquitto.h"
 #include "mosquitto_broker.h"
@@ -36,6 +40,190 @@ Contributors:
 static mosquitto_plugin_id_t *plg_id = NULL;
 static char *config_file = NULL;
 struct dynsec__acl_default_access default_access = {false, false, false, false};
+
+#ifdef WIN32
+#  include <winsock2.h>
+#  include <aclapi.h>
+#  include <io.h>
+#  include <lmcons.h>
+#  include <fcntl.h>
+#  define PATH_MAX MAX_PATH
+#else
+#  include <sys/stat.h>
+#  include <pwd.h>
+#  include <grp.h>
+#  include <unistd.h>
+#endif
+/* Temporary - remove in 2.1 */
+FILE *mosquitto__fopen(const char *path, const char *mode, bool restrict_read)
+{
+#ifdef WIN32
+	char buf[4096];
+	int rc;
+	int flags = 0;
+
+	rc = ExpandEnvironmentStringsA(path, buf, 4096);
+	if(rc == 0 || rc > 4096){
+		return NULL;
+	}else{
+		if (restrict_read) {
+			HANDLE hfile;
+			SECURITY_ATTRIBUTES sec;
+			EXPLICIT_ACCESS_A ea;
+			PACL pacl = NULL;
+			char username[UNLEN + 1];
+			DWORD ulen = UNLEN;
+			SECURITY_DESCRIPTOR sd;
+			DWORD dwCreationDisposition;
+			int fd;
+			FILE *fptr;
+
+			switch(mode[0]){
+				case 'a':
+					dwCreationDisposition = OPEN_ALWAYS;
+					flags = _O_APPEND;
+					break;
+				case 'r':
+					dwCreationDisposition = OPEN_EXISTING;
+					flags = _O_RDONLY;
+					break;
+				case 'w':
+					dwCreationDisposition = CREATE_ALWAYS;
+					break;
+				default:
+					return NULL;
+			}
+
+			GetUserNameA(username, &ulen);
+			if (!InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION)) {
+				return NULL;
+			}
+			BuildExplicitAccessWithNameA(&ea, username, GENERIC_ALL, SET_ACCESS, NO_INHERITANCE);
+			if (SetEntriesInAclA(1, &ea, NULL, &pacl) != ERROR_SUCCESS) {
+				return NULL;
+			}
+			if (!SetSecurityDescriptorDacl(&sd, TRUE, pacl, FALSE)) {
+				LocalFree(pacl);
+				return NULL;
+			}
+
+			memset(&sec, 0, sizeof(sec));
+			sec.nLength = sizeof(SECURITY_ATTRIBUTES);
+			sec.bInheritHandle = FALSE;
+			sec.lpSecurityDescriptor = &sd;
+
+			hfile = CreateFileA(buf, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ,
+				&sec,
+				dwCreationDisposition,
+				FILE_ATTRIBUTE_NORMAL,
+				NULL);
+
+			LocalFree(pacl);
+
+			fd = _open_osfhandle((intptr_t)hfile, flags);
+			if (fd < 0) {
+				return NULL;
+			}
+
+			fptr = _fdopen(fd, mode);
+			if (!fptr) {
+				_close(fd);
+				return NULL;
+			}
+			if(mode[0] == 'a'){
+				fseek(fptr, 0, SEEK_END);
+			}
+			return fptr;
+
+		}else {
+			return fopen(buf, mode);
+		}
+	}
+#else
+	FILE *fptr;
+	struct stat statbuf;
+
+	if (restrict_read) {
+		mode_t old_mask;
+
+		old_mask = umask(0077);
+		fptr = fopen(path, mode);
+		umask(old_mask);
+	}else{
+		fptr = fopen(path, mode);
+	}
+	if(!fptr) return NULL;
+
+	if(fstat(fileno(fptr), &statbuf) < 0){
+		fclose(fptr);
+		return NULL;
+	}
+
+	if(restrict_read){
+		if(statbuf.st_mode & S_IRWXO){
+#ifdef WITH_BROKER
+			log__printf(NULL, MOSQ_LOG_WARNING,
+#else
+			fprintf(stderr,
+#endif
+					"Warning: File %s has world readable permissions. Future versions will refuse to load this file.",
+					path);
+#if 0
+			return NULL;
+#endif
+		}
+		if(statbuf.st_uid != getuid()){
+			char buf[4096];
+			struct passwd pw, *result;
+
+			getpwuid_r(getuid(), &pw, buf, sizeof(buf), &result);
+			if(result){
+#ifdef WITH_BROKER
+				log__printf(NULL, MOSQ_LOG_WARNING,
+#else
+				fprintf(stderr,
+#endif
+						"Warning: File %s owner is not %s. Future versions will refuse to load this file.",
+						path, result->pw_name);
+			}
+#if 0
+			// Future version
+			return NULL;
+#endif
+		}
+		if(statbuf.st_gid != getgid()){
+			char buf[4096];
+			struct group grp, *result;
+
+			getgrgid_r(getgid(), &grp, buf, sizeof(buf), &result);
+			if(result){
+#ifdef WITH_BROKER
+				log__printf(NULL, MOSQ_LOG_WARNING,
+#else
+				fprintf(stderr,
+#endif
+						"Warning: File %s group is not %s. Future versions will refuse to load this file.",
+						path, result->gr_name);
+			}
+#if 0
+			// Future version
+			return NULL
+#endif
+		}
+	}
+
+
+	if(!S_ISREG(statbuf.st_mode) && !S_ISLNK(statbuf.st_mode)){
+#ifdef WITH_BROKER
+		log__printf(NULL, MOSQ_LOG_ERR, "Error: %s is not a file.", path);
+#endif
+		fclose(fptr);
+		return NULL;
+	}
+	return fptr;
+#endif
+}
+
 
 void dynsec__command_reply(cJSON *j_responses, struct mosquitto *context, const char *command, const char *error, const char *correlation_data)
 {
@@ -133,8 +321,7 @@ static int dynsec_control_callback(int event, void *event_data, void *userdata)
 
 static int dynsec__process_set_default_acl_access(cJSON *j_responses, struct mosquitto *context, cJSON *command, char *correlation_data)
 {
-	cJSON *j_actions, *j_action, *j_acltype, *j_allow;
-	bool allow;
+	cJSON *j_actions, *j_action;
 	const char *admin_clientid, *admin_username;
 
 	j_actions = cJSON_GetObjectItem(command, "acls");
@@ -147,24 +334,23 @@ static int dynsec__process_set_default_acl_access(cJSON *j_responses, struct mos
 	admin_username = mosquitto_client_username(context);
 
 	cJSON_ArrayForEach(j_action, j_actions){
-		j_acltype = cJSON_GetObjectItem(j_action, "acltype");
-		j_allow = cJSON_GetObjectItem(j_action, "allow");
-		if(j_acltype && cJSON_IsString(j_acltype)
-					&& j_allow && cJSON_IsBool(j_allow)){
+		char *acltype;
+		bool allow;
 
-			allow = cJSON_IsTrue(j_allow);
+		if(json_get_string(j_action, "acltype", &acltype, false) == MOSQ_ERR_SUCCESS
+				&& json_get_bool(j_action, "allow", &allow, false, false) == MOSQ_ERR_SUCCESS){
 
-			if(!strcasecmp(j_acltype->valuestring, ACL_TYPE_PUB_C_SEND)){
+			if(!strcasecmp(acltype, ACL_TYPE_PUB_C_SEND)){
 				default_access.publish_c_send = allow;
-			}else if(!strcasecmp(j_acltype->valuestring, ACL_TYPE_PUB_C_RECV)){
+			}else if(!strcasecmp(acltype, ACL_TYPE_PUB_C_RECV)){
 				default_access.publish_c_recv = allow;
-			}else if(!strcasecmp(j_acltype->valuestring, ACL_TYPE_SUB_GENERIC)){
+			}else if(!strcasecmp(acltype, ACL_TYPE_SUB_GENERIC)){
 				default_access.subscribe = allow;
-			}else if(!strcasecmp(j_acltype->valuestring, ACL_TYPE_UNSUB_GENERIC)){
+			}else if(!strcasecmp(acltype, ACL_TYPE_UNSUB_GENERIC)){
 				default_access.unsubscribe = allow;
 			}
 			mosquitto_log_printf(MOSQ_LOG_INFO, "dynsec: %s/%s | setDefaultACLAccess | acltype=%s | allow=%s",
-					admin_clientid, admin_username, j_acltype->valuestring, allow?"true":"false");
+					admin_clientid, admin_username, acltype, allow?"true":"false");
 		}
 	}
 
@@ -288,37 +474,14 @@ int mosquitto_plugin_version(int supported_version_count, const int *supported_v
 
 static int dynsec__general_config_load(cJSON *tree)
 {
-	cJSON *j_default_access, *jtmp;
+	cJSON *j_default_access;
 
 	j_default_access = cJSON_GetObjectItem(tree, "defaultACLAccess");
 	if(j_default_access && cJSON_IsObject(j_default_access)){
-		jtmp = cJSON_GetObjectItem(j_default_access, ACL_TYPE_PUB_C_SEND);
-		if(jtmp && cJSON_IsBool(jtmp)){
-			default_access.publish_c_send = cJSON_IsTrue(jtmp);
-		}else{
-			default_access.publish_c_send = false;
-		}
-
-		jtmp = cJSON_GetObjectItem(j_default_access, ACL_TYPE_PUB_C_RECV);
-		if(jtmp && cJSON_IsBool(jtmp)){
-			default_access.publish_c_recv = cJSON_IsTrue(jtmp);
-		}else{
-			default_access.publish_c_recv = false;
-		}
-
-		jtmp = cJSON_GetObjectItem(j_default_access, ACL_TYPE_SUB_GENERIC);
-		if(jtmp && cJSON_IsBool(jtmp)){
-			default_access.subscribe = cJSON_IsTrue(jtmp);
-		}else{
-			default_access.subscribe = false;
-		}
-
-		jtmp = cJSON_GetObjectItem(j_default_access, ACL_TYPE_UNSUB_GENERIC);
-		if(jtmp && cJSON_IsBool(jtmp)){
-			default_access.unsubscribe = cJSON_IsTrue(jtmp);
-		}else{
-			default_access.unsubscribe = false;
-		}
+		json_get_bool(j_default_access, ACL_TYPE_PUB_C_SEND, &default_access.publish_c_send, true, false);
+		json_get_bool(j_default_access, ACL_TYPE_PUB_C_RECV, &default_access.publish_c_recv, true, false);
+		json_get_bool(j_default_access, ACL_TYPE_SUB_GENERIC, &default_access.subscribe, true, false);
+		json_get_bool(j_default_access, ACL_TYPE_UNSUB_GENERIC, &default_access.unsubscribe, true, false);
 	}
 	return MOSQ_ERR_SUCCESS;
 }
@@ -354,18 +517,25 @@ static int dynsec__config_load(void)
 	cJSON *tree;
 
 	/* Load from file */
-	fptr = fopen(config_file, "rb");
+	errno = 0;
+	fptr = mosquitto__fopen(config_file, "rb", true);
 	if(fptr == NULL){
 		mosquitto_log_printf(MOSQ_LOG_ERR, "Error loading Dynamic security plugin config: File is not readable - check permissions.\n");
-		return 1;
+		return MOSQ_ERR_ERRNO;
 	}
+#ifndef WIN32
+	if(errno == ENOTDIR || errno == EISDIR){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error loading Dynamic security plugin config: Config is not a file.\n");
+		return MOSQ_ERR_ERRNO;
+	}
+#endif
 
 	fseek(fptr, 0, SEEK_END);
 	flen_l = ftell(fptr);
 	if(flen_l < 0){
 		mosquitto_log_printf(MOSQ_LOG_ERR, "Error loading Dynamic security plugin config: %s\n", strerror(errno));
 		fclose(fptr);
-		return 1;
+		return MOSQ_ERR_ERRNO;
 	}else if(flen_l == 0){
 		fclose(fptr);
 		return 0;
@@ -376,13 +546,13 @@ static int dynsec__config_load(void)
 	if(json_str == NULL){
 		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Out of memory.");
 		fclose(fptr);
-		return 1;
+		return MOSQ_ERR_NOMEM;
 	}
 	if(fread(json_str, 1, flen, fptr) != flen){
 		mosquitto_log_printf(MOSQ_LOG_WARNING, "Error loading Dynamic security plugin config: Unable to read file contents.\n");
 		mosquitto_free(json_str);
 		fclose(fptr);
-		return 1;
+		return MOSQ_ERR_ERRNO;
 	}
 	fclose(fptr);
 
@@ -390,7 +560,7 @@ static int dynsec__config_load(void)
 	mosquitto_free(json_str);
 	if(tree == NULL){
 		mosquitto_log_printf(MOSQ_LOG_ERR, "Error loading Dynamic security plugin config: File is not valid JSON.\n");
-		return 1;
+		return MOSQ_ERR_INVAL;
 	}
 
 	if(dynsec__general_config_load(tree)
@@ -400,7 +570,7 @@ static int dynsec__config_load(void)
 			){
 
 		cJSON_Delete(tree);
-		return 1;
+		return MOSQ_ERR_NOMEM;
 	}
 
 	cJSON_Delete(tree);
@@ -440,7 +610,7 @@ void dynsec__config_save(void)
 	json_str_len = strlen(json_str);
 
 	/* Save to file */
-	file_path_len = strlen(config_file) + 1;
+	file_path_len = strlen(config_file) + strlen(".new") + 1;
 	file_path = mosquitto_malloc(file_path_len);
 	if(file_path == NULL){
 		mosquitto_free(json_str);
@@ -449,7 +619,7 @@ void dynsec__config_save(void)
 	}
 	snprintf(file_path, file_path_len, "%s.new", config_file);
 
-	fptr = fopen(file_path, "wt");
+	fptr = mosquitto__fopen(file_path, "wt", true);
 	if(fptr == NULL){
 		mosquitto_free(json_str);
 		mosquitto_free(file_path);
@@ -471,6 +641,7 @@ void dynsec__config_save(void)
 int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, struct mosquitto_opt *options, int option_count)
 {
 	int i;
+	int rc;
 
 	UNUSED(user_data);
 
@@ -491,11 +662,46 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	plg_id = identifier;
 
 	dynsec__config_load();
-	mosquitto_callback_register(plg_id, MOSQ_EVT_CONTROL, dynsec_control_callback, "$CONTROL/dynamic-security/v1", NULL);
-	mosquitto_callback_register(plg_id, MOSQ_EVT_BASIC_AUTH, dynsec_auth__basic_auth_callback, NULL, NULL);
-	mosquitto_callback_register(plg_id, MOSQ_EVT_ACL_CHECK, dynsec__acl_check_callback, NULL, NULL);
+
+	rc = mosquitto_callback_register(plg_id, MOSQ_EVT_CONTROL, dynsec_control_callback, "$CONTROL/dynamic-security/v1", NULL);
+	if(rc == MOSQ_ERR_ALREADY_EXISTS){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Dynamic security plugin can currently only be loaded once.");
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Note that this was previously incorrectly allowed but could cause problems with duplicate entries in the config.");
+		goto error;
+	}else if(rc == MOSQ_ERR_NOMEM){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Out of memory.");
+		goto error;
+	}else if(rc != MOSQ_ERR_SUCCESS){
+		goto error;
+	}
+
+	rc = mosquitto_callback_register(plg_id, MOSQ_EVT_BASIC_AUTH, dynsec_auth__basic_auth_callback, NULL, NULL);
+	if(rc == MOSQ_ERR_ALREADY_EXISTS){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Dynamic security plugin can only be loaded once.");
+		goto error;
+	}else if(rc == MOSQ_ERR_NOMEM){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Out of memory.");
+		goto error;
+	}else if(rc != MOSQ_ERR_SUCCESS){
+		goto error;
+	}
+
+	rc = mosquitto_callback_register(plg_id, MOSQ_EVT_ACL_CHECK, dynsec__acl_check_callback, NULL, NULL);
+	if(rc == MOSQ_ERR_ALREADY_EXISTS){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Dynamic security plugin can only be loaded once.");
+		goto error;
+	}else if(rc == MOSQ_ERR_NOMEM){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "Error: Out of memory.");
+		goto error;
+	}else if(rc != MOSQ_ERR_SUCCESS){
+		goto error;
+	}
 
 	return MOSQ_ERR_SUCCESS;
+error:
+	mosquitto_free(config_file);
+	config_file = NULL;
+	return rc;
 }
 
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *options, int option_count)

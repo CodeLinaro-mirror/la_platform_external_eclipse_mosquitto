@@ -16,10 +16,10 @@ test : c cpp
 
 test-compile : test-compile-c test-compile-cpp
 
-test-compile-c : 
+test-compile-c :
 	$(MAKE) -C c
 
-test-compile-cpp : 
+test-compile-cpp :
 	$(MAKE) -C cpp
 
 c : test-compile
@@ -65,6 +65,8 @@ ifeq ($(WITH_TLS),yes)
 	./08-ssl-bad-cacert.py $@/08-ssl-bad-cacert.test
 	./08-ssl-connect-cert-auth-enc.py $@/08-ssl-connect-cert-auth-enc.test
 	./08-ssl-connect-cert-auth.py $@/08-ssl-connect-cert-auth.test
+	./08-ssl-connect-cert-auth.py $@/08-ssl-connect-cert-auth-custom-ssl-ctx.test
+	./08-ssl-connect-cert-auth.py $@/08-ssl-connect-cert-auth-custom-ssl-ctx-default.test
 	./08-ssl-connect-no-auth.py $@/08-ssl-connect-no-auth.test
 endif
 	./09-util-topic-tokenise.py $@/09-util-topic-tokenise.test
@@ -75,6 +77,6 @@ endif
 	./11-prop-recv-qos1.py $@/11-prop-recv-qos1.test
 	./11-prop-recv-qos2.py $@/11-prop-recv-qos2.test
 
-clean : 
+clean :
 	$(MAKE) -C c clean
 	$(MAKE) -C cpp clean

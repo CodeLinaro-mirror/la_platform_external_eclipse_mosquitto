@@ -4,12 +4,12 @@ Copyright (c) 2009-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -39,7 +39,7 @@ struct mosquitto *context__init(mosq_sock_t sock)
 
 	context = mosquitto__calloc(1, sizeof(struct mosquitto));
 	if(!context) return NULL;
-	
+
 #ifdef WITH_EPOLL
 	context->ident = id_client;
 #else
@@ -83,9 +83,9 @@ struct mosquitto *context__init(mosq_sock_t sock)
 		}
 	}
 	context->bridge = NULL;
-	context->msgs_in.inflight_maximum = db.config->max_inflight_messages;
+	context->msgs_in.inflight_maximum = 1;
 	context->msgs_out.inflight_maximum = db.config->max_inflight_messages;
-	context->msgs_in.inflight_quota = db.config->max_inflight_messages;
+	context->msgs_in.inflight_quota = 1;
 	context->msgs_out.inflight_quota = db.config->max_inflight_messages;
 	context->max_qos = 2;
 #ifdef WITH_TLS
@@ -98,6 +98,27 @@ struct mosquitto *context__init(mosq_sock_t sock)
 	return context;
 }
 
+static void context__cleanup_out_packets(struct mosquitto *context)
+{
+	struct mosquitto__packet *packet;
+
+	if(!context) return;
+
+	if(context->current_out_packet){
+		packet__cleanup(context->current_out_packet);
+		mosquitto__free(context->current_out_packet);
+		context->current_out_packet = NULL;
+	}
+	while(context->out_packet){
+		packet__cleanup(context->out_packet);
+		packet = context->out_packet;
+		context->out_packet = context->out_packet->next;
+		mosquitto__free(packet);
+	}
+	context->out_packet_count = 0;
+}
+
+
 /*
  * This will result in any outgoing packets going unsent. If we're disconnected
  * forcefully then it is usually an error condition and shouldn't be a problem,
@@ -106,8 +127,6 @@ struct mosquitto *context__init(mosq_sock_t sock)
  */
 void context__cleanup(struct mosquitto *context, bool force_free)
 {
-	struct mosquitto__packet *packet;
-
 	if(!context) return;
 
 	if(force_free){
@@ -121,6 +140,7 @@ void context__cleanup(struct mosquitto *context, bool force_free)
 #endif
 
 	alias__free_all(context);
+	context__cleanup_out_packets(context);
 
 	mosquitto__free(context->auth_method);
 	context->auth_method = NULL;
@@ -148,18 +168,7 @@ void context__cleanup(struct mosquitto *context, bool force_free)
 		context->id = NULL;
 	}
 	packet__cleanup(&(context->in_packet));
-	if(context->current_out_packet){
-		packet__cleanup(context->current_out_packet);
-		mosquitto__free(context->current_out_packet);
-		context->current_out_packet = NULL;
-	}
-	while(context->out_packet){
-		packet__cleanup(context->out_packet);
-		packet = context->out_packet;
-		context->out_packet = context->out_packet->next;
-		mosquitto__free(packet);
-	}
-	context->out_packet_count = 0;
+	context__cleanup_out_packets(context);
 #if defined(WITH_BROKER) && defined(__GLIBC__) && defined(WITH_ADNS)
 	if(context->adns){
 		gai_cancel(context->adns);
@@ -212,22 +221,22 @@ void context__disconnect(struct mosquitto *context)
 
 	plugin__handle_disconnect(context, -1);
 
-	net__socket_close(context);
-
 	context__send_will(context);
-	if(context->session_expiry_interval == 0){
-		/* Client session is due to be expired now */
+	net__socket_close(context);
 #ifdef WITH_BRIDGE
-		if(context->bridge == NULL)
+	if(context->bridge == NULL)
+	/* Outgoing bridge connection never expire */
 #endif
-		{
+	{
+		if(context->session_expiry_interval == 0){
+			/* Client session is due to be expired now */
 			if(context->will_delay_interval == 0){
 				/* This will be done later, after the will is published for delay>0. */
 				context__add_to_disused(context);
 			}
+		}else{
+			session_expiry__add(context);
 		}
-	}else{
-		session_expiry__add(context);
 	}
 	keepalive__remove(context);
 	mosquitto__set_state(context, mosq_cs_disconnected);
@@ -282,16 +291,25 @@ void context__free_disused(void)
 }
 
 
+void context__add_to_by_id(struct mosquitto *context)
+{
+	if(context->in_by_id == false){
+		context->in_by_id = true;
+		HASH_ADD_KEYPTR(hh_id, db.contexts_by_id, context->id, strlen(context->id), context);
+	}
+}
+
+
 void context__remove_from_by_id(struct mosquitto *context)
 {
 	struct mosquitto *context_found;
 
-	if(context->removed_from_by_id == false && context->id){
+	if(context->in_by_id == true && context->id){
 		HASH_FIND(hh_id, db.contexts_by_id, context->id, strlen(context->id), context_found);
 		if(context_found){
 			HASH_DELETE(hh_id, db.contexts_by_id, context_found);
 		}
-		context->removed_from_by_id = true;
+		context->in_by_id = false;
 	}
 }
 

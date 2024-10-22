@@ -28,6 +28,12 @@
 		use the default values listed below. See
 		<citerefentry><refentrytitle><link xlink:href="mosquitto-8.html">mosquitto</link></refentrytitle><manvolnum>8</manvolnum></citerefentry>
 		for information on how to load a configuration file.</para>
+		<para>
+			Mosquitto can be instructed to reload the configuration file by sending
+			a SIGHUP signal as described in the Signals section of
+			<citerefentry><refentrytitle><link xlink:href="mosquitto-8.html">mosquitto</link></refentrytitle><manvolnum>8</manvolnum></citerefentry>.
+			Not all configuration options can be reloaded, as detailed in the options below.
+		</para>
 	</refsect1>
 
 	<refsect1>
@@ -170,7 +176,7 @@
 					<para>Reloaded on reload signal. The currently loaded ACLs
 						will be freed and reloaded. Existing subscriptions will
 						be affected after the reload.</para>
-					<para>See also 
+					<para>See also
 						<ulink url="https://mosquitto.org/documentation/dynamic-security/"/>
 					</para>
 				</listitem>
@@ -250,35 +256,6 @@
 						to all listeners.</para>
 
 					<para>Reloaded on reload signal.</para>
-				</listitem>
-			</varlistentry>
-			<varlistentry>
-				<term><option>auth_opt_*</option> <replaceable>value</replaceable></term>
-				<listitem>
-					<para>Options to be passed to the auth plugin. See the
-						specific plugin instructions.</para>
-
-					<para>Applies to the current authentication plugin being configured.</para>
-				</listitem>
-			</varlistentry>
-			<varlistentry>
-				<term><option>auth_plugin</option> <replaceable>file path</replaceable></term>
-				<listitem>
-					<para>Specify an external module to use for authentication
-						and access control. This allows custom
-						username/password and access control functions to be
-						created.</para>
-					<para>Can be specified multiple times to load multiple
-						plugins. The plugins will be processed in the order
-						that they are specified.</para>
-					<para>If <option>password_file</option>, or
-						<option>acl_file</option> are used in the config file
-						alongsize <option>auth_plugin</option>, the plugin
-						checks will run after the built in checks.</para>
-					<para>Not currently reloaded on reload signal.</para>
-					<para>See also 
-						<ulink url="https://mosquitto.org/documentation/dynamic-security/"/>
-					</para>
 				</listitem>
 			</varlistentry>
 			<varlistentry>
@@ -479,7 +456,7 @@ D.conf
 					<para>Send log messages to a particular destination.
 						Possible destinations are: <option>stdout</option>
 						<option>stderr</option> <option>syslog</option>
-						<option>topic</option> <option>file</option> 
+						<option>topic</option> <option>file</option>
 						<option>dlt</option>.</para>
 					<para><option>stdout</option> and
 						<option>stderr</option> log to the console on the
@@ -622,7 +599,24 @@ log_timestamp_format %Y-%m-%dT%H:%M:%S
 						be sent a server keepalive telling them to use
 						max_keepalive. This only applies to MQTT v5 clients.
 						The maximum value allowable, and default value, is
-						65535. Do not set below 10 seconds.</para>
+						65535.</para>
+
+					<para>
+						Set to 0 to allow clients to set keepalive = 0, which
+						means no keepalive checks are made and the client will
+						never be disconnected by the broker if no messages are
+						received. You should be very sure this is the behaviour
+						that you want.
+					</para>
+
+					<para>
+						For MQTT v3.1.1 and v3.1 clients, there is no mechanism
+						to tell the client what keepalive value they should use.
+						If an MQTT v3.1.1 or v3.1 client specifies a keepalive
+						time greater than max_keepalive they will be sent a
+						CONNACK message with the "identifier rejected" reason
+						code, and disconnected.
+					</para>
 
 					<para>This option applies globally.</para>
 
@@ -781,9 +775,9 @@ log_timestamp_format %Y-%m-%dT%H:%M:%S
 						<option>acl_file</option>, <option>psk_file</option>,
 						<option>allow_anonymous</option>,
 						<option>allow_zero_length_clientid</option>,
-						<option>auth_plugin</option>,
-						<option>auth_opt_*</option>,
 						<option>auto_id_prefix</option>.</para>
+						<option>plugin</option>,
+						<option>plugin_opt_*</option>,
 					<para>Note that if set to true, then a durable client (i.e.
 						with clean session set to false) that has disconnected
 						will use the ACL settings defined for the listener that
@@ -848,15 +842,21 @@ log_timestamp_format %Y-%m-%dT%H:%M:%S
 			<varlistentry>
 				<term><option>persistent_client_expiration</option> <replaceable>duration</replaceable></term>
 				<listitem>
-					<para>This option allows persistent clients (those with
-						clean session set to false) to be removed if they do
-						not reconnect within a certain time frame. This is a
-						non-standard option. As far as the MQTT spec is
-						concerned, persistent clients persist forever.</para>
-					<para>Badly designed clients may set clean session to false
-						whilst using a randomly generated client id. This leads
-						to persistent clients that will never reconnect. This
-						option allows these clients to be removed.</para>
+					<para>
+						This option allows the session of persistent clients (those with clean
+						session set to false) <emphasis>that are not currently connected</emphasis> to be removed if they
+						do not reconnect within a certain time frame. This is a non-standard option
+						in MQTT v3.1. MQTT v3.1.1 and v5.0 allow brokers to remove client sessions.
+					</para>
+
+					<para>
+						Badly designed clients may set clean session to false whilst using a randomly
+						generated client id. This leads to persistent clients that connect once and
+						never reconnect. This option allows these clients to be removed.  This option
+						allows persistent clients (those with clean session set to false) to be
+						removed if they do not reconnect within a certain time frame.
+					</para>
+
 					<para>The expiration period should be an integer followed
 						by one of h d w m y for hour, day, week, month and year
 						respectively. For example:</para>
@@ -884,6 +884,50 @@ log_timestamp_format %Y-%m-%dT%H:%M:%S
 						file. This should then be configured as e.g.
 						/var/run/mosquitto/mosquitto.pid</para>
 					<para>Not reloaded on reload signal.</para>
+				</listitem>
+			</varlistentry>
+			<varlistentry>
+				<term><option>plugin_opt_*</option> <replaceable>value</replaceable></term>
+				<listitem>
+					<para>
+						Options to be passed to the most recent
+						<option>plugin</option> defined in the
+						configuration file. See the specific
+						plugin instructions for details of what
+						options are available.
+					</para>
+
+					<para>Applies to the current plugin being configured.</para>
+					<para>
+                        This is also available as the <option>auth_opt_*</option>
+                        option, but this use is deprecated and will be removed
+                        in a future version.
+					</para>
+				</listitem>
+			</varlistentry>
+			<varlistentry>
+				<term><option>plugin</option> <replaceable>file path</replaceable></term>
+				<listitem>
+					<para>Specify an external module to use for authentication
+						and access control. This allows custom
+						username/password and access control functions to be
+						created.</para>
+					<para>Can be specified multiple times to load multiple
+						plugins. The plugins will be processed in the order
+						that they are specified.</para>
+					<para>If <option>password_file</option>, or
+						<option>acl_file</option> are used in the config file
+						alongsize <option>plugin</option>, the plugin
+						checks will run after the built in checks.</para>
+					<para>Not currently reloaded on reload signal.</para>
+					<para>See also
+						<ulink url="https://mosquitto.org/documentation/dynamic-security/"/>
+					</para>
+					<para>
+                        This is also available as the <option>auth_plugin</option>
+                        option, but this use is deprecated and will be removed
+                        in a future version.
+					</para>
 				</listitem>
 			</varlistentry>
 			<varlistentry>
@@ -916,7 +960,9 @@ log_timestamp_format %Y-%m-%dT%H:%M:%S
 				<listitem>
 					<para>Set to <replaceable>true</replaceable> to queue
 						messages with QoS 0 when a persistent client is
-						disconnected. These messages are included in the limit
+						disconnected. When bridges topics are configured with QoS level 1 or 2 incoming
+						QoS 0 messages for these topics are also queued.
+						These messages are included in the limit
 						imposed by max_queued_messages.  Defaults to
 						<replaceable>false</replaceable>.</para>
 					<para>Note that the MQTT v3.1.1 spec states that only QoS 1
@@ -1217,6 +1263,7 @@ log_timestamp_format %Y-%m-%dT%H:%M:%S
 							disconnected as not authorised when this option is
 							set to true. Do not use in conjunction with
 							<option>clientid_prefixes</option>.</para>
+						<para>This does not apply globally, but on a per-listener basis.</para>
 						<para>See also
 							<option>use_identity_as_username</option>.</para>
 						<para>Not reloaded on reload signal.</para>
@@ -1344,9 +1391,12 @@ openssl dhparam -out dhparam.pem 2048</programlisting>
 					<term><option>keyfile</option> <replaceable>file path</replaceable></term>
 					<listitem>
 						<para>
-							Path to the PEM encoded server key. This
-							option and <option>certfile</option> must be present
-							to enable certificate based TLS encryption.
+							If <option>tls_keyform</option> equals "pem" this is the
+							path to the PEM encoded server key. This option
+							and <option>certfile</option> must be present
+							to enable certificate based TLS encryption. If
+							<option>tls_keyform</option> is "engine" this represents
+							the engine handle of the private key.
 						</para>
 						<para>
 							The private key pointed to by this option will be
@@ -1411,7 +1461,7 @@ openssl dhparam -out dhparam.pem 2048</programlisting>
 							<replaceable>tlsv1.3</replaceable>,
 							<replaceable>tlsv1.2</replaceable> and
 							<replaceable>tlsv1.1</replaceable>. If left unset,
-							the default of allowing TLS v1.3 and v1.2.</para>
+							the default allows TLS v1.3 and v1.2.</para>
 						<para>In Mosquitto version 1.6.x and earlier, this
 							option set the only TLS protocol version that
 							was allowed, rather than the minimum.</para>

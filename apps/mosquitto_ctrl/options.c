@@ -89,11 +89,12 @@ int ctrl_config_parse(struct mosq_config *cfg, int *argc, char **argv[])
 
 	init_config(cfg);
 
-	rc = client_config_load(cfg);
-	if(rc) return rc;
-
 	/* Deal with real argc/argv */
 	rc = client_config_line_proc(cfg, argc, argv);
+	if(rc) return rc;
+
+	/* Load options from config file - this must be after `-o` has been processed */
+	rc = client_config_load(cfg);
 	if(rc) return rc;
 
 #ifdef WITH_TLS
@@ -531,7 +532,7 @@ int client_config_load(struct mosq_config *cfg)
 			fclose(fptr);
 			return 1;
 		}
-		while(fgets(line, 1024, fptr)){
+		while(fgets(line, sizeof(line), fptr)){
 			if(line[0] == '#') continue; /* Comments */
 
 			while(line[strlen(line)-1] == 10 || line[strlen(line)-1] == 13){
@@ -592,6 +593,11 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 		return 1;
 	}
 #ifdef WITH_TLS
+	if(cfg->keyform && mosquitto_string_option(mosq, MOSQ_OPT_TLS_KEYFORM, cfg->keyform)){
+		fprintf(stderr, "Error: Problem setting key form, it must be one of 'pem' or 'engine'.\n");
+		mosquitto_lib_cleanup();
+		return 1;
+	}
 	if(cfg->cafile || cfg->capath){
 		rc = mosquitto_tls_set(mosq, cfg->cafile, cfg->capath, cfg->certfile, cfg->keyfile, NULL);
 		if(rc){
@@ -611,11 +617,6 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 	}
 	if(cfg->tls_engine && mosquitto_string_option(mosq, MOSQ_OPT_TLS_ENGINE, cfg->tls_engine)){
 		fprintf(stderr, "Error: Problem setting TLS engine, is %s a valid engine?\n", cfg->tls_engine);
-		mosquitto_lib_cleanup();
-		return 1;
-	}
-	if(cfg->keyform && mosquitto_string_option(mosq, MOSQ_OPT_TLS_KEYFORM, cfg->keyform)){
-		fprintf(stderr, "Error: Problem setting key form, it must be one of 'pem' or 'engine'.\n");
 		mosquitto_lib_cleanup();
 		return 1;
 	}

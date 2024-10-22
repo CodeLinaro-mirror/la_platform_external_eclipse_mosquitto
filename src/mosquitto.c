@@ -4,12 +4,12 @@ Copyright (c) 2009-2020 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -160,9 +160,18 @@ static void mosquitto__daemonise(void)
 		exit(1);
 	}
 
-	assert(freopen("/dev/null", "r", stdin));
-	assert(freopen("/dev/null", "w", stdout));
-	assert(freopen("/dev/null", "w", stderr));
+	if(!freopen("/dev/null", "r", stdin)){
+		log__printf(NULL, MOSQ_LOG_ERR, "Error whilst daemonising (%s): %s", "stdin", strerror(errno));
+		exit(1);
+	}
+	if(!freopen("/dev/null", "w", stdout)){
+		log__printf(NULL, MOSQ_LOG_ERR, "Error whilst daemonising (%s): %s", "stdout", strerror(errno));
+		exit(1);
+	}
+	if(!freopen("/dev/null", "w", stderr)){
+		log__printf(NULL, MOSQ_LOG_ERR, "Error whilst daemonising (%s): %s", "stderr", strerror(errno));
+		exit(1);
+	}
 #else
 	log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Can't start in daemon mode in Windows.");
 #endif
@@ -335,7 +344,7 @@ static int listeners__start(void)
 
 	listensock_count = 0;
 
-	if(db.config->listener_count == 0){
+	if(db.config->local_only){
 		if(listeners__start_local_only()){
 			db__close();
 			if(db.config->pid_file){
@@ -475,7 +484,12 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef WIN32
-	_setmaxstdio(2048);
+	if(_setmaxstdio(8192) != 8192){
+		/* Old limit was 2048 */
+		if(_setmaxstdio(2048) != 2048){
+			log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Unable to increase maximum allowed connections. This session may be limited to 512 connections.");
+		}
+	}
 #endif
 
 	memset(&db, 0, sizeof(struct mosquitto_db));

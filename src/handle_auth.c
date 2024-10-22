@@ -47,6 +47,9 @@ int handle__auth(struct mosquitto *context)
 	if(context->protocol != mosq_p_mqtt5 || context->auth_method == NULL){
 		return MOSQ_ERR_PROTOCOL;
 	}
+	if(context->in_packet.command != CMD_AUTH){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
 
 	if(context->in_packet.remaining_length > 0){
 		if(packet__read_byte(&context->in_packet, &reason_code)) return MOSQ_ERR_MALFORMED_PACKET;
@@ -126,18 +129,22 @@ int handle__auth(struct mosquitto *context)
 			will__clear(context);
 		}
 		if(rc == MOSQ_ERR_AUTH){
-			send__connack(context, 0, MQTT_RC_NOT_AUTHORIZED, NULL);
 			if(context->state == mosq_cs_authenticating){
+				send__connack(context, 0, MQTT_RC_NOT_AUTHORIZED, NULL);
 				mosquitto__free(context->id);
 				context->id = NULL;
+			}else{
+				send__disconnect(context, MQTT_RC_NOT_AUTHORIZED, NULL);
 			}
 			return MOSQ_ERR_PROTOCOL;
 		}else if(rc == MOSQ_ERR_NOT_SUPPORTED){
 			/* Client has requested extended authentication, but we don't support it. */
-			send__connack(context, 0, MQTT_RC_BAD_AUTHENTICATION_METHOD, NULL);
 			if(context->state == mosq_cs_authenticating){
+				send__connack(context, 0, MQTT_RC_BAD_AUTHENTICATION_METHOD, NULL);
 				mosquitto__free(context->id);
 				context->id = NULL;
+			}else{
+				send__disconnect(context, MQTT_RC_BAD_AUTHENTICATION_METHOD, NULL);
 			}
 			return MOSQ_ERR_PROTOCOL;
 		}else{

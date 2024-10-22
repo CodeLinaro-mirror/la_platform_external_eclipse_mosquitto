@@ -53,6 +53,9 @@ int handle__pubrel(struct mosquitto *mosq)
 	if(mosquitto__get_state(mosq) != mosq_cs_active){
 		return MOSQ_ERR_PROTOCOL;
 	}
+	if(mosq->protocol != mosq_p_mqtt31 && mosq->in_packet.command != (CMD_PUBREL|2)){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
 
 	if(mosq->protocol != mosq_p_mqtt31){
 		if((mosq->in_packet.command&0x0F) != 0x02){
@@ -67,14 +70,25 @@ int handle__pubrel(struct mosquitto *mosq)
 		rc = packet__read_byte(&mosq->in_packet, &reason_code);
 		if(rc) return rc;
 
+		if(reason_code != MQTT_RC_SUCCESS && reason_code != MQTT_RC_PACKET_ID_NOT_FOUND){
+			return MOSQ_ERR_PROTOCOL;
+		}
+
 		if(mosq->in_packet.remaining_length > 3){
 			rc = property__read_all(CMD_PUBREL, &mosq->in_packet, &properties);
 			if(rc) return rc;
 		}
 	}
 
+	if(mosq->in_packet.pos < mosq->in_packet.remaining_length){
 #ifdef WITH_BROKER
-	log__printf(NULL, MOSQ_LOG_DEBUG, "Received PUBREL from %s (Mid: %d)", mosq->id, mid);
+		mosquitto_property_free_all(&properties);
+#endif
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
+
+#ifdef WITH_BROKER
+	log__printf(NULL, MOSQ_LOG_DEBUG, "Received PUBREL from %s (Mid: %d)", SAFE_PRINT(mosq->id), mid);
 
 	/* Immediately free, we don't do anything with Reason String or User Property at the moment */
 	mosquitto_property_free_all(&properties);
@@ -90,7 +104,7 @@ int handle__pubrel(struct mosquitto *mosq)
 	rc = send__pubcomp(mosq, mid, NULL);
 	if(rc) return rc;
 #else
-	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received PUBREL (Mid: %d)", mosq->id, mid);
+	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received PUBREL (Mid: %d)", SAFE_PRINT(mosq->id), mid);
 
 	rc = send__pubcomp(mosq, mid, NULL);
 	if(rc){
