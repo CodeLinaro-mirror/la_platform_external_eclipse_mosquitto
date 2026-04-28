@@ -57,7 +57,7 @@ if(WITH_TLS)
 endif()
 
 if(WIN32)
-	set (LIBRARIES ${LIBRARIES} ws2_32)
+	set (LIBRARIES ${LIBRARIES} kernel32 ws2_32)
 endif()
 
 if(WITH_SRV)
