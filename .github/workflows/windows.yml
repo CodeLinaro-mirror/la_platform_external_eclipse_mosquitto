@@ -46,6 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
       - name: vcpkg build
         uses: johnwason/vcpkg-action@v7
         id: vcpkg
