@@ -88,7 +88,11 @@ jobs:
           name: installer${{ matrix.arch }}
           path: ${{ github.workspace }}/installer/mosquitto*.exe
 
-      - run: pip install win32event
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: 'pip' # caching pip dependencies
+      - run: pip install -r requirements.txt
 
       - name: Tests
         run: ctest --test-dir ${{ github.workspace }}/${{ matrix.buildloc }} -C ${{ env.BUILD_TYPE }} --output-on-failure --repeat until-pass:5
